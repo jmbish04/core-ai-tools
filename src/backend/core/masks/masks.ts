@@ -133,6 +133,25 @@ export async function confirmMask(ctx: CoreContext, maskId: string): Promise<Mas
   return row;
 }
 
+/** Soft-delete (drop) a mask. Idempotent; never a hard delete (revision history
+ * may reference it). A second call on an already-dropped mask is a no-op that
+ * returns the existing row. Throws NotFound only if the id was never a mask.
+ *
+ * D1 has no interactive transactions over the binding, so this is a
+ * check-then-write; the empty-result guard (`?? existing`) covers a concurrent
+ * delete landing between the read and the update. */
+export async function softDeleteMask(ctx: CoreContext, maskId: string): Promise<Mask> {
+  const [existing] = await ctx.db.select().from(masks).where(eq(masks.id, maskId)).limit(1);
+  if (!existing) throw new NotFoundError(`Mask ${maskId} not found.`);
+  if (existing.deletedAt) return existing; // already dropped — idempotent no-op
+  const [row] = await ctx.db
+    .update(masks)
+    .set({ deletedAt: new Date() })
+    .where(eq(masks.id, maskId))
+    .returning();
+  return row ?? existing;
+}
+
 /** Fetch a LIVE mask or throw NotFound. */
 export async function requireMask(ctx: CoreContext, maskId: string): Promise<Mask> {
   const [row] = await ctx.db

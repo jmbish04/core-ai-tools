@@ -29,7 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { apiSend } from "@/lib/api";
+import { ApiError, apiSend } from "@/lib/api";
 
 // --- Collapsible, syntax-colored JSON tree -------------------------------
 
@@ -138,11 +138,13 @@ export function JsonPayloadEditor({
   const [instruction, setInstruction] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
 
   const runAi = async () => {
     setLoading(true);
     setError(null);
+    setErrorDetail(null);
     setResult(null);
     try {
       const raw = await apiSend<unknown>("POST", "ai/format-json", {
@@ -155,6 +157,9 @@ export function JsonPayloadEditor({
       setResult(formatted);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Formatting failed.");
+      // Surface the exact model output / server detail when the model failed.
+      const body = e instanceof ApiError ? (e.body as { raw?: unknown } | undefined) : undefined;
+      setErrorDetail(typeof body?.raw === "string" ? body.raw : null);
     } finally {
       setLoading(false);
     }
@@ -257,7 +262,21 @@ export function JsonPayloadEditor({
               />
             </div>
 
-            {error && <div className="rounded-lg bg-destructive/15 p-2 text-xs text-destructive">{error}</div>}
+            {error && (
+              <div className="space-y-1.5">
+                <div className="rounded-lg bg-destructive/15 p-2 text-xs text-destructive">{error}</div>
+                {errorDetail && (
+                  <div className="space-y-1">
+                    <span className="font-mono text-[10px] uppercase text-muted-foreground">
+                      Model output
+                    </span>
+                    <pre className="max-h-40 overflow-auto rounded-lg bg-background p-2 font-mono text-[10px] whitespace-pre-wrap break-words text-muted-foreground ring-1 ring-border/40">
+                      {errorDetail}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            )}
 
             {!result ? (
               <Button onClick={runAi} disabled={loading} className="w-full gap-2">

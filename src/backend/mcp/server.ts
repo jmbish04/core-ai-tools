@@ -36,6 +36,7 @@ import {
   rejectRevision,
   retryRevision,
   setAssetTtl,
+  softDeleteMask,
   submitEdit,
   getSessionTree,
 } from "@/backend/core";
@@ -44,8 +45,10 @@ import { listModels } from "@/backend/ai/registry";
 import { buildMcpEditPayload } from "./payload";
 import {
   imageContentBlock,
+  maskImageBlock,
   revisionImageBlock,
   serializeLibrary,
+  serializeMasks,
   serializeSessions,
   serializeSessionTree,
 } from "./serialize";
@@ -80,6 +83,15 @@ async function editPayload(ctx: CoreContext, rev: Awaited<ReturnType<typeof subm
 async function runAndPayload(ctx: CoreContext, rev: Awaited<ReturnType<typeof submitEdit>>, host: string) {
   const executed = rev?.status === "queued" ? await executeRevision(ctx, { revisionId: rev.id, surface: "mcp" }) : rev;
   return editPayload(ctx, executed as typeof rev, host);
+}
+
+/**
+ * Build the MCP content for an image tool: the inline image block (base64) PLUS
+ * a text block carrying the public CF Images URLs, so a client can ingest the
+ * pixels directly OR fetch the URL — whichever is more native to it.
+ */
+function imageResultContent(r: { image: unknown; imageUrl: string | null; thumbUrl: string | null }) {
+  return [r.image, { type: "text", text: JSON.stringify({ imageUrl: r.imageUrl, thumbUrl: r.thumbUrl }) }];
 }
 
 const TOOLS: Record<string, ToolDef> = {
@@ -165,7 +177,8 @@ const TOOLS: Record<string, ToolDef> = {
     handler: (ctx, a) => rejectRevision(ctx, { revisionId: a.revisionId as string, rejectionReason: a.reason as string, rejectedBySurface: "mcp" }),
   },
   create_mask: {
-    description: `Create a mask. kind='semantic' resolves a natural-language region to a proposed mask. ${SESSION_NOTE}`,
+    description:
+      `Draw a mask over the source image. kind='bbox' (geometry {x,y,w,h} in 0–1), 'polygon' (geometry {points:[[x,y],…]} in 0–1), or 'semantic' (resolves a natural-language region, e.g. "the countertop"). Returns the mask row incl. its id (the same id shown in the UI). Call get_mask_image to SEE the result and ask the user to confirm. ${SESSION_NOTE}`,
     schema: z.object({
       sessionUuid: z.string().optional(),
       sourceImageId: z.string(),
@@ -182,14 +195,27 @@ const TOOLS: Record<string, ToolDef> = {
     },
   },
   list_masks: {
-    description: "List masks for a session (or library-scoped).",
+    description:
+      "List masks for a session (or library-scoped). Each row carries its id (visible in the UI too), kind, geometry, mode, state, plus maskThumbUrl/maskImageUrl (the painted raster) and sourceImageUrls.",
     schema: z.object({ sessionUuid: z.string().optional() }),
-    handler: (ctx, a) => listMasks(ctx, a as any),
+    handler: async (ctx, a, host) => serializeMasks(ctx, await listMasks(ctx, a as any), `https://${host}`),
   },
   describe_mask: {
-    description: "Return a mask + a preview composited over the source (confirm before an expensive edit).",
+    description: "Return a mask row + geometry. To SEE the mask over the image, call get_mask_image.",
     schema: z.object({ maskId: z.string() }),
     handler: (ctx, a) => describeMask(ctx, a.maskId as string),
+  },
+  get_mask_image: {
+    description:
+      "SEE a mask for confirmation: returns an MCP image of the source with the mask drawn over it (semi-transparent). Use this to ask the user whether the mask is correct before running an edit.",
+    raw: true,
+    schema: z.object({ maskId: z.string() }),
+    handler: async (ctx, a) => imageResultContent(await maskImageBlock(ctx, a.maskId as string)),
+  },
+  drop_mask: {
+    description: "Drop (soft-delete) a mask by id — e.g. when the user rejects it, or to clear masks so a model that can't handle masks can run. Revision history keeps its reference.",
+    schema: z.object({ maskId: z.string() }),
+    handler: (ctx, a) => softDeleteMask(ctx, a.maskId as string),
   },
   list_library: {
     description: "List library images. Each row carries thumbUrl/imageUrl. To SEE an image, call get_library_image.",
@@ -198,30 +224,32 @@ const TOOLS: Record<string, ToolDef> = {
   },
   get_revision_image: {
     description:
-      "Return a revision's image as an MCP image content block you can actually SEE (base64). which=output|input (default output), variant=thumb|full (default thumb — small, ~512px). Use this whenever get_session_tree hands you an outputImageId you want to inspect.",
+      "Return a revision's image as an MCP image content block you can SEE (base64) PLUS a text block with its public Cloudflare Images URL (imageUrl/thumbUrl) — ingest whichever is more native. which=output|input (default output), variant=thumb|full (default thumb — small, ~512px). Use whenever get_session_tree hands you an outputImageId you want to inspect.",
     raw: true,
     schema: z.object({
       revisionUuid: z.string(),
       which: z.enum(["output", "input"]).optional(),
       variant: z.enum(["thumb", "full"]).optional(),
     }),
-    handler: async (ctx, a) => [
-      await revisionImageBlock(
-        ctx,
-        a.revisionUuid as string,
-        (a.which as "output" | "input") ?? "output",
-        (a.variant as "thumb" | "full") ?? "thumb",
+    handler: async (ctx, a) =>
+      imageResultContent(
+        await revisionImageBlock(
+          ctx,
+          a.revisionUuid as string,
+          (a.which as "output" | "input") ?? "output",
+          (a.variant as "thumb" | "full") ?? "thumb",
+        ),
       ),
-    ],
   },
   get_library_image: {
     description:
-      "Return a library image (seed/reference) as an MCP image content block you can SEE (base64). variant=thumb|full (default thumb).",
+      "Return a library image (seed/reference) as an MCP image content block you can SEE (base64) PLUS its public Cloudflare Images URL. variant=thumb|full (default thumb).",
     raw: true,
     schema: z.object({ libraryImageId: z.string(), variant: z.enum(["thumb", "full"]).optional() }),
-    handler: async (ctx, a) => [
-      await imageContentBlock(ctx, a.libraryImageId as string, (a.variant as "thumb" | "full") ?? "thumb"),
-    ],
+    handler: async (ctx, a) =>
+      imageResultContent(
+        await imageContentBlock(ctx, a.libraryImageId as string, (a.variant as "thumb" | "full") ?? "thumb"),
+      ),
   },
   create_folder: {
     description: "Create a library folder.",

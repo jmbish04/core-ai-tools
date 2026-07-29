@@ -33,6 +33,7 @@ interface ModelOption {
   deprecated?: boolean;
   capabilities: {
     mask_inpainting: boolean;
+    mask_emulated_only?: boolean;
     image_to_image: boolean;
   };
 }
@@ -87,13 +88,13 @@ export function ComposePane({
             id: "gemini-3.1-flash-image",
             provider: "google",
             display_name: "Gemini 3.1 Flash Image",
-            capabilities: { mask_inpainting: false, image_to_image: true },
+            capabilities: { mask_inpainting: true, mask_emulated_only: false, image_to_image: true },
           },
           {
             id: "gpt-image-2",
             provider: "openai",
             display_name: "OpenAI GPT Image 2",
-            capabilities: { mask_inpainting: true, image_to_image: true },
+            capabilities: { mask_inpainting: true, mask_emulated_only: false, image_to_image: true },
           },
         ]);
       });
@@ -102,18 +103,26 @@ export function ComposePane({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!promptText.trim() && !isJsonMode) return;
+    if (attachedMask && selectedModel && !canMask) {
+      setError(`${selectedModel.display_name} can't use masks. Pick a mask-capable model or remove the mask.`);
+      return;
+    }
 
     setSubmitting(true);
     setError(null);
 
     try {
-      let editPayloadData: unknown = null;
+      let editPayloadData: unknown;
       if (isJsonMode) {
         try {
           editPayloadData = JSON.parse(jsonPayload);
         } catch {
           throw new Error("Invalid JSON payload format");
         }
+      } else {
+        // Plain-text edit: the core requires a non-null payload (it's what gets
+        // fingerprinted), so derive it from the instruction.
+        editPayloadData = { instruction: promptText.trim() };
       }
 
       await apiSend("POST", "revisions", {
@@ -137,6 +146,13 @@ export function ComposePane({
   };
 
   const selectedModel = models.find((m) => m.id === selectedModelId);
+  // A model can use a mask if it has a native channel OR supports emulation.
+  const canMask = Boolean(
+    selectedModel?.capabilities.mask_inpainting || selectedModel?.capabilities.mask_emulated_only,
+  );
+  // Hard block: a mask is attached but the selected model can't handle masks at
+  // all. The user must pick a mask-capable model or remove the mask.
+  const maskBlocked = Boolean(attachedMask) && Boolean(selectedModel) && !canMask;
 
   return (
     <div className="flex flex-col gap-4 rounded-xl bg-card p-5 ring-1 ring-border/40">
@@ -207,13 +223,19 @@ export function ComposePane({
 
             {attachedMask ? (
               <div className="flex items-center justify-between rounded-lg bg-emerald-500/15 px-3 py-2 text-xs text-emerald-300 ring-1 ring-emerald-500/30">
-                <span className="font-mono truncate">
-                  {attachedMask.label || "Mask attached"} ({attachedMask.mode})
+                <span className="flex min-w-0 flex-col">
+                  <span className="font-mono truncate">
+                    {attachedMask.label || "Mask attached"} ({attachedMask.mode})
+                  </span>
+                  <span className="font-mono text-[10px] text-emerald-400/70 truncate" title={attachedMask.id}>
+                    id: {attachedMask.id}
+                  </span>
                 </span>
                 <button
                   type="button"
                   onClick={onClearMask}
-                  className="text-emerald-300 hover:text-white"
+                  className="shrink-0 text-emerald-300 hover:text-white"
+                  title="Remove mask"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -231,17 +253,23 @@ export function ComposePane({
           </div>
         </div>
 
-        {/* Capability check warnings */}
-        {attachedMask && selectedModel && !selectedModel.capabilities.mask_inpainting && (
-          <div className="text-[11px] font-mono text-amber-400">
-            &bull; Warning: Selected model does not natively support mask inpainting; edit will run via emulation composite.
+        {/* Capability checks. Hard block if the model can't mask at all;
+            otherwise note native vs emulated. */}
+        {maskBlocked ? (
+          <div className="rounded-lg bg-destructive/15 p-2 text-[11px] font-mono text-destructive ring-1 ring-destructive/30">
+            &bull; {selectedModel?.display_name} can&apos;t use masks. Pick a mask-capable model, or remove
+            the mask to run this model.
           </div>
-        )}
+        ) : attachedMask && selectedModel && !selectedModel.capabilities.mask_inpainting ? (
+          <div className="text-[11px] font-mono text-amber-400">
+            &bull; {selectedModel.display_name} has no native mask channel; the masked edit runs via emulation composite.
+          </div>
+        ) : null}
 
         {/* Submit button */}
         <Button
           type="submit"
-          disabled={submitting || (!promptText.trim() && !isJsonMode)}
+          disabled={submitting || (!promptText.trim() && !isJsonMode) || maskBlocked}
           className="w-full gap-2 bg-primary text-primary-foreground font-medium py-5"
         >
           {submitting ? (

@@ -7,11 +7,12 @@
  * QUARTERLY REVIEW: re-check every pinned id + `deprecated` flag against provider
  * docs each quarter.
  *
- * MASK FINDING (from the Gemini image API contract): Gemini image models have NO
- * mask-channel parameter — inpainting is SEMANTIC (prompt phrasing / compositing).
- * So all Gemini image models are `mask_inpainting: false` + `mask_emulated_only:
- * true`; a masked edit on them is emulated and the revision is flagged
- * `mask_emulated`. OpenAI's image model does have a native mask channel.
+ * MASK FINDING: the dedicated Gemini IMAGE models (3.1 Flash Image, 3 Pro Image,
+ * 3.1 Flash Lite, 2.5 legacy) DO support masked inpainting — the adapter sends
+ * the base image + the mask + the instruction, and the model edits within the
+ * mask (`mask_inpainting: true`). The non-image Gemini models can't: 3.6 Flash is
+ * understanding/agentic (no image output) and Omni is video — both
+ * `mask_inpainting: false`. OpenAI gpt-image-2 also has a native mask channel.
  */
 
 import type { ModelEntry } from "./types";
@@ -28,8 +29,8 @@ export const MODEL_CATALOG: ModelEntry[] = [
     capabilities: {
       text_to_image: true,
       image_to_image: true,
-      mask_inpainting: false,
-      mask_emulated_only: true,
+      mask_inpainting: true,
+      mask_emulated_only: false,
       multi_reference_image: true,
       blueprint_json: true,
       grounding_web: true,
@@ -52,8 +53,8 @@ export const MODEL_CATALOG: ModelEntry[] = [
     capabilities: {
       text_to_image: true,
       image_to_image: true,
-      mask_inpainting: false,
-      mask_emulated_only: true,
+      mask_inpainting: true,
+      mask_emulated_only: false,
       multi_reference_image: true,
       blueprint_json: true,
       grounding_web: true,
@@ -76,8 +77,8 @@ export const MODEL_CATALOG: ModelEntry[] = [
     capabilities: {
       text_to_image: true,
       image_to_image: true,
-      mask_inpainting: false,
-      mask_emulated_only: true,
+      mask_inpainting: true,
+      mask_emulated_only: false,
       multi_reference_image: false,
       blueprint_json: false,
       grounding_web: false,
@@ -101,8 +102,8 @@ export const MODEL_CATALOG: ModelEntry[] = [
     capabilities: {
       text_to_image: true,
       image_to_image: true,
-      mask_inpainting: false,
-      mask_emulated_only: true,
+      mask_inpainting: true,
+      mask_emulated_only: false,
       multi_reference_image: true,
       blueprint_json: false,
       grounding_web: false,
