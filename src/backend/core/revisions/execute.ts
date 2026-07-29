@@ -28,6 +28,7 @@ import type { CapabilityRequirement, TaskKey } from "@/backend/ai/registry";
 import type { CoreContext } from "../context";
 import { NotFoundError, ValidationError } from "../errors";
 import { fetchImageBase64, uploadImageBytes, variantUrl, IMAGE_VARIANTS } from "../images";
+import { requireImage } from "../library/images";
 import { requireMask } from "../masks";
 import { markFailed, markRunning, markSucceeded } from "./lifecycle";
 import { requireRevision } from "./query";
@@ -107,12 +108,27 @@ export async function executeRevision(ctx: CoreContext, input: ExecuteInput): Pr
       if (mask.cfImageId) maskBase64 = await fetchImageBase64(ctx.env, mask.cfImageId);
     }
 
+    // Additional reference images, already ordered base → object → style in
+    // editPayload.reference_image_ids (create.ts). Resolve each → base64 so they
+    // reach the provider as image blocks after the base image. Without this the
+    // refs are recorded but never sent.
+    let referenceImagesBase64: string[] | undefined;
+    const refIds = (rev.editPayload as { reference_image_ids?: unknown } | null)?.reference_image_ids;
+    if (Array.isArray(refIds) && refIds.length > 0) {
+      referenceImagesBase64 = [];
+      for (const rid of refIds) {
+        const refImg = await requireImage(ctx, String(rid));
+        referenceImagesBase64.push(await fetchImageBase64(ctx.env, refImg.cfImageId));
+      }
+    }
+
     const providerRequest: ProviderRequest = {
       model,
       prompt: rev.promptText,
       editPayload: rev.editPayload,
       inputImageBase64,
       maskBase64,
+      referenceImagesBase64,
       maskMode: rev.maskMode === "none" ? undefined : (rev.maskMode as "inpaint" | "preserve"),
       previousInteractionId: parent?.providerInteractionId ?? null,
     };

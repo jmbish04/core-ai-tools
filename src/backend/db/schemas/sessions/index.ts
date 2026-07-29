@@ -13,3 +13,4 @@ export * from "./masks";
 export * from "./revisions";
 export * from "./revision-events";
 export * from "./revision-artifacts";
+export * from "./session-images";

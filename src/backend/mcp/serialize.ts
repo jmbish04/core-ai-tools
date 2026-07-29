@@ -18,6 +18,7 @@ import {
   arrayBufferToBase64,
   buildVariantUrl,
   IMAGE_VARIANTS,
+  listSessionReferences,
   requireImage,
   requireMask,
   requireRevision,
@@ -109,12 +110,21 @@ export async function serializeSessionTree(
       ids.push(a.inputImageId, a.outputImageId, ...refIds(a));
     }
   const map = await resolveImageUrls(ctx, ids, base);
+  // Role lives on the session pool (session_images), not the revision — join it
+  // so each reference surfaces its base/object/style role alongside its URL.
+  const roleMap = new Map(
+    (await listSessionReferences(ctx, tree.sessionUuid)).map((r) => [r.image.id, r.role]),
+  );
 
   const decorate = (r: Revision) => ({
     ...r,
     inputImageUrls: (r.inputImageId && map.get(r.inputImageId)) || EMPTY,
     outputImageUrls: (r.outputImageId && map.get(r.outputImageId)) || EMPTY,
-    referenceImageUrls: refIds(r).map((id) => ({ imageId: id, ...(map.get(id) ?? EMPTY) })),
+    referenceImageUrls: refIds(r).map((id) => ({
+      imageId: id,
+      role: roleMap.get(id) ?? null,
+      ...(map.get(id) ?? EMPTY),
+    })),
   });
   const node = (n: RevisionTreeNode): unknown => ({
     ...n,

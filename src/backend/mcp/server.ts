@@ -21,6 +21,9 @@ import {
   createSession,
   describeMask,
   executeRevision,
+  flagImageBad,
+  unflagImageBad,
+  registerImageFromSource,
   forkRevision,
   finishMcpLog,
   gradeRevision,
@@ -122,7 +125,11 @@ const TOOLS: Record<string, ToolDef> = {
       serializeSessionTree(ctx, await getSessionTree(ctx, a.sessionUuid as string), `https://${host}`),
   },
   submit_edit: {
-    description: `Create a revision (queued or awaiting_approval); progress streams to the web UI. ${SESSION_NOTE} Supply idempotency_key so a retry of a dropped call returns the same revision.`,
+    description:
+      `Create a revision (queued or awaiting_approval); progress streams to the web UI. ${SESSION_NOTE} ` +
+      `Supply idempotency_key so a retry of a dropped call returns the same revision. ` +
+      `references[] adds up to 14 extra reference images (beyond the base) for multi-reference models ` +
+      `(Pro: ≤6 object, ≤3 style) — each { imageId, role: object|style }; register a raw image with register_image first.`,
     schema: z.object({
       sessionUuid: z.string(),
       parentRevisionId: z.string(),
@@ -131,6 +138,9 @@ const TOOLS: Record<string, ToolDef> = {
       requestedModel: z.string(),
       maskId: z.string().optional(),
       maskMode: z.enum(["none", "inpaint", "preserve"]).optional(),
+      references: z
+        .array(z.object({ imageId: z.string(), role: z.enum(["base", "object", "style"]) }))
+        .optional(),
       idempotencyKey: z.string().optional(),
     }),
     handler: async (ctx, a, host) =>
@@ -274,6 +284,32 @@ const TOOLS: Record<string, ToolDef> = {
       imageResultContent(
         await imageContentBlock(ctx, a.libraryImageId as string, (a.variant as "thumb" | "full") ?? "thumb"),
       ),
+  },
+  register_image: {
+    description:
+      "Register an image into the library and get its id (use it as a submit_edit reference). " +
+      "Provide EXACTLY ONE of: cfImagesUrl (an imagedelivery.net URL — registered by id, deduped, no re-upload), " +
+      "imageUrl (any http(s) image — fetched and re-hosted to Cloudflare Images), or base64. " +
+      "Optional description is stored on the row and used as reference context.",
+    schema: z.object({
+      cfImagesUrl: z.string().optional(),
+      imageUrl: z.string().optional(),
+      base64: z.string().optional(),
+      description: z.string().optional(),
+      folderId: z.string().optional(),
+    }),
+    handler: (ctx, a) => registerImageFromSource(ctx, { ...(a as any), uploadedVia: "mcp" }),
+  },
+  mark_image_bad: {
+    description:
+      "Flag a library image as bad so it's visibly ignored for editing, with an optional reason. Reversible via unmark_image_bad.",
+    schema: z.object({ libraryImageId: z.string(), notes: z.string().optional() }),
+    handler: (ctx, a) => flagImageBad(ctx, a.libraryImageId as string, a.notes as string | undefined),
+  },
+  unmark_image_bad: {
+    description: "Undo a bad flag on a library image (clears the marker and its notes).",
+    schema: z.object({ libraryImageId: z.string() }),
+    handler: (ctx, a) => unflagImageBad(ctx, a.libraryImageId as string),
   },
   create_folder: {
     description: "Create a library folder.",

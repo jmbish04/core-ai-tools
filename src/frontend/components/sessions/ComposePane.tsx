@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { apiGet, apiSend } from "@/lib/api";
 import { JsonPayloadEditor } from "./JsonPayloadEditor";
+import { ReferencePicker, type ReferenceItem } from "./ReferencePicker";
 
 interface ModelOption {
   id: string;
@@ -35,6 +36,8 @@ interface ModelOption {
     mask_inpainting: boolean;
     mask_emulated_only?: boolean;
     image_to_image: boolean;
+    multi_reference_image?: boolean;
+    max_reference_images?: number;
   };
 }
 
@@ -67,6 +70,7 @@ export function ComposePane({
   
   const [models, setModels] = useState<ModelOption[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string>("gemini-3.1-flash-image");
+  const [references, setReferences] = useState<ReferenceItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -133,10 +137,12 @@ export function ComposePane({
         requestedModel: selectedModelId,
         maskId: attachedMask?.id || null,
         maskMode: attachedMask?.mode || "none",
+        references: references.length > 0 ? references.map((r) => ({ imageId: r.imageId, role: r.role })) : undefined,
         createdVia: "ui",
       });
 
       setPromptText("");
+      setReferences([]);
       onEditSubmitted();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit edit");
@@ -153,6 +159,15 @@ export function ComposePane({
   // Hard block: a mask is attached but the selected model can't handle masks at
   // all. The user must pick a mask-capable model or remove the mask.
   const maskBlocked = Boolean(attachedMask) && Boolean(selectedModel) && !canMask;
+
+  // Drop references if the newly-selected model can't take them (avoids a
+  // guaranteed server-side caps rejection on submit).
+  useEffect(() => {
+    if (selectedModel && !selectedModel.capabilities.multi_reference_image && references.length > 0) {
+      setReferences([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedModelId]);
 
   return (
     <div className="flex flex-col gap-4 rounded-xl bg-card p-5 ring-1 ring-border/40">
@@ -251,6 +266,16 @@ export function ComposePane({
               </Button>
             )}
           </div>
+
+          {/* Reference images — only for multi-reference models. */}
+          {selectedModel?.capabilities.multi_reference_image &&
+            (selectedModel.capabilities.max_reference_images ?? 0) > 0 && (
+              <ReferencePicker
+                value={references}
+                onChange={setReferences}
+                maxTotal={selectedModel.capabilities.max_reference_images ?? 0}
+              />
+            )}
         </div>
 
         {/* Capability checks. Hard block if the model can't mask at all;
