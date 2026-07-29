@@ -112,13 +112,17 @@ export function ComposePane({
     setError(null);
 
     try {
-      let editPayloadData: unknown = null;
+      let editPayloadData: unknown;
       if (isJsonMode) {
         try {
           editPayloadData = JSON.parse(jsonPayload);
         } catch {
           throw new Error("Invalid JSON payload format");
         }
+      } else {
+        // Plain-text edit: the core requires a non-null payload (it's what gets
+        // fingerprinted), so derive it from the instruction.
+        editPayloadData = { instruction: promptText.trim() };
       }
 
       await apiSend("POST", "revisions", {
