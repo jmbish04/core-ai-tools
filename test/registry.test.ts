@@ -49,7 +49,7 @@ describe("registry — pure capability logic", () => {
     expect(() => assertCapability("gemini-3.6-flash", { mask_inpainting: true })).toThrow(
       CapabilityError,
     );
-    // Flash image emulates masks (no channel, but mask_emulated_only) → allowed.
+    // Gemini image models support native masking → allowed.
     expect(assertCapability("gemini-3.1-flash-image", { mask_inpainting: true }).id).toBe(
       "gemini-3.1-flash-image",
     );

@@ -88,7 +88,7 @@ export function ComposePane({
             id: "gemini-3.1-flash-image",
             provider: "google",
             display_name: "Gemini 3.1 Flash Image",
-            capabilities: { mask_inpainting: false, mask_emulated_only: true, image_to_image: true },
+            capabilities: { mask_inpainting: true, mask_emulated_only: false, image_to_image: true },
           },
           {
             id: "gpt-image-2",

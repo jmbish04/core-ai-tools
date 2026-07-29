@@ -19,8 +19,11 @@
  *  - image_size takes the uppercase-K Resolution verbatim ("512px"/"1K"/…).
  *  - Grounding → tools:[{type:"google_search", search_types}]; persist suggestions.
  *  - Thinking tokens returned separately; interim thought images → artifacts.
- *  - Gemini image models have NO mask channel — masked edits are emulated
- *    (semantic prompt phrasing in core), and we flag `maskEmulated`.
+ *  - Masking: the mask PNG is sent as an input image part alongside the base +
+ *    a convention instruction (inpaint = edit inside the white region; preserve =
+ *    edit outside it). Gemini image models honor this; the registry marks them
+ *    `mask_inpainting: true`. Non-image Gemini models (3.6 Flash, Omni) can't and
+ *    are gated by capabilities.
  *  - NO AI Gateway: the Interactions API is not proxyable through Cloudflare AI
  *    Gateway, so calls go direct and usage is logged to core-guardian by the
  *    dispatch choke point (../dispatch/index.ts) — that is the sole usage record.
@@ -36,11 +39,26 @@ type InputPart =
   | { type: "text"; text: string }
   | { type: "image"; mime_type: string; data: string };
 
-/** Ordered input parts: prompt text, the edited image (when not chaining), refs. */
+/** Instruction appended when a mask is supplied, describing how to honor it.
+ *  Our mask PNG marks the target region in white; everything else is transparent. */
+function maskInstruction(mode: ProviderRequest["maskMode"]): string {
+  return mode === "preserve"
+    ? "\n\nA binary mask image is included. KEEP the white (marked) region exactly as-is; apply the requested edit ONLY to the area OUTSIDE the white region."
+    : "\n\nA binary mask image is included. Apply the requested edit ONLY within the white (marked) region; leave every pixel outside it unchanged.";
+}
+
+/** Ordered input parts: prompt (+ mask note), the edited image (when not chaining),
+ *  the mask (when supplied), then reference images. */
 function buildInput(req: ProviderRequest, includeInlineImage: boolean): InputPart[] {
-  const parts: InputPart[] = [{ type: "text", text: req.prompt }];
+  const text = req.maskBase64 ? req.prompt + maskInstruction(req.maskMode) : req.prompt;
+  const parts: InputPart[] = [{ type: "text", text }];
   if (includeInlineImage && req.inputImageBase64) {
     parts.push({ type: "image", mime_type: "image/png", data: req.inputImageBase64 });
+  }
+  // Native masking: send the mask image right after the base so the model edits
+  // within it (Gemini image models honor this; capabilities gate non-image ones).
+  if (req.maskBase64) {
+    parts.push({ type: "image", mime_type: "image/png", data: req.maskBase64 });
   }
   const maxRefs = Math.max(0, req.model.capabilities.max_reference_images);
   for (const ref of (req.referenceImagesBase64 ?? []).slice(0, maxRefs)) {
@@ -154,8 +172,8 @@ export const googleImageAdapter: ProviderAdapter = {
       throw new ProviderError("Gemini Interactions returned no image.", { id: interaction?.id });
     }
     if (conversationLost) result.conversationLost = true;
-    // Gemini image models have no mask channel; a masked edit here is emulated.
-    if (req.maskBase64 || req.maskMode) result.maskEmulated = true;
+    // The mask is sent to the model (image part + instruction), so it's applied
+    // natively — not a post-hoc composite. Leave maskEmulated false.
     return result;
   },
 
