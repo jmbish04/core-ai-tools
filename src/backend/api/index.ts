@@ -121,7 +121,7 @@ app.use("/api/admin/*", authMiddleware);
 // `Bearer <WORKER_API_KEY>` (see authMiddleware). These carry real prompts,
 // sessions, and library images, so they are not left public. Registered before
 // the routers are mounted (Hono applies middleware in registration order).
-for (const p of ["sessions", "revisions", "library", "models", "prompts", "video"]) {
+for (const p of ["sessions", "revisions", "library", "models", "prompts", "video", "masks", "ai"]) {
   app.use(`/api/${p}`, authMiddleware);
   app.use(`/api/${p}/*`, authMiddleware);
 }
