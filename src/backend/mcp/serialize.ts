@@ -217,6 +217,16 @@ export async function imageContentBlock(
   };
 }
 
+/** A mask row decorated with its preview URLs. */
+export interface McpMaskResult extends Mask {
+  /** ~512px variant of the painted raster mask (null for geometry-only masks). */
+  maskThumbUrl: string | null;
+  /** Full-size variant of the painted raster mask. */
+  maskImageUrl: string | null;
+  /** URLs for the image the mask is drawn over. */
+  sourceImageUrls: ImageUrls;
+}
+
 /** Decorate masks with their preview URLs (the raster mask + the source image)
  * so ids + previews are visible in list_masks. `cfImageId` on a mask is a raw CF
  * Images id (not a library row), so build variant URLs directly. */
@@ -224,7 +234,7 @@ export async function serializeMasks(
   ctx: CoreContext,
   rows: Mask[],
   base: string,
-): Promise<unknown[]> {
+): Promise<McpMaskResult[]> {
   const hash = await getImagesAccountHash(ctx.env);
   const srcMap = await resolveImageUrls(ctx, rows.map((m) => m.sourceImageId), base);
   return rows.map((m) => ({
@@ -263,7 +273,7 @@ export async function maskImageBlock(ctx: CoreContext, maskId: string): Promise<
     try {
       const srcStream = await ctx.env.IMAGES.hosted.image(src.cfImageId).bytes();
       const maskStream = await ctx.env.IMAGES.hosted.image(mask.cfImageId).bytes();
-      if (srcStream && maskStream) {
+      if (srcStream != null && maskStream != null) {
         const result = await ctx.env.IMAGES.input(srcStream)
           .draw(ctx.env.IMAGES.input(maskStream), { opacity: 0.55 })
           .output({ format: "image/png" });
@@ -272,14 +282,20 @@ export async function maskImageBlock(ctx: CoreContext, maskId: string): Promise<
           return { image: { type: "image", data: arrayBufferToBase64(buf), mimeType: "image/png" }, imageUrl, thumbUrl };
         }
       }
-    } catch {
-      // Composition unavailable — fall back to the raw mask raster below.
+    } catch (e) {
+      console.error(`[mcp] mask composite failed for ${maskId}:`, e instanceof Error ? e.message : String(e));
+      // Fall back to the raw mask raster below.
     }
   }
   const url = await variantUrl(ctx.env, mask.cfImageId, IMAGE_VARIANTS.FULL);
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch mask raster for ${maskId} (HTTP ${res.status}).`);
   const buf = await res.arrayBuffer();
+  if (buf.byteLength > MAX_IMAGE_BYTES) {
+    throw new Error(
+      `Mask raster is ${(buf.byteLength / 1e6).toFixed(1)}MB, over the ${MAX_IMAGE_BYTES / 1e6}MB MCP cap.`,
+    );
+  }
   return {
     image: {
       type: "image",

@@ -18,30 +18,44 @@ const ok = {
 /** Pull the assistant text out of a Workers AI result across model shapes. */
 function extractText(raw: unknown): string {
   if (typeof raw === "string") return raw;
-  const r = raw as Record<string, any>;
-  if (!r || typeof r !== "object") return "";
+  if (!raw || typeof raw !== "object") return "";
+  const r = raw as Record<string, unknown>;
   if (typeof r.response === "string") return r.response;
   if (typeof r.output_text === "string") return r.output_text;
   // OpenAI chat-completions shape.
-  const choice = r.choices?.[0]?.message?.content;
-  if (typeof choice === "string") return choice;
+  const choices = r.choices;
+  if (Array.isArray(choices)) {
+    const msg = (choices[0] as { message?: { content?: unknown } } | undefined)?.message?.content;
+    if (typeof msg === "string") return msg;
+  }
   // gpt-oss "responses" API: output: [{ type, content: [{ type, text }] }].
   if (Array.isArray(r.output)) {
     const parts: string[] = [];
-    for (const item of r.output) {
-      const content = item?.content;
+    for (const item of r.output as unknown[]) {
+      const content = (item as { content?: unknown })?.content;
       if (typeof content === "string") parts.push(content);
       else if (Array.isArray(content)) {
-        for (const c of content) if (typeof c?.text === "string") parts.push(c.text);
+        for (const c of content as unknown[]) {
+          const t = (c as { text?: unknown })?.text;
+          if (typeof t === "string") parts.push(t);
+        }
       }
     }
     if (parts.length) return parts.join("");
   }
   // Nested { response: { response } } and similar.
-  if (r.response && typeof r.response === "object" && typeof r.response.response === "string") {
-    return r.response.response;
-  }
+  const nested = (r.response as { response?: unknown } | undefined)?.response;
+  if (typeof nested === "string") return nested;
   return "";
+}
+
+/** JSON.stringify that never throws (circular refs / exotic objects). */
+function safeStringify(v: unknown): string {
+  try {
+    return JSON.stringify(v) ?? String(v);
+  } catch {
+    return String(v);
+  }
 }
 
 /** Strip markdown code fences and grab the outermost JSON object/array. */
@@ -94,7 +108,7 @@ aiRouter.openapi(
       return c.json(
         {
           error: "The model did not return valid JSON. Try again or adjust your instruction.",
-          raw: (text || JSON.stringify(raw)).slice(0, 2000),
+          raw: (text || safeStringify(raw)).slice(0, 2000),
         },
         422,
       );
