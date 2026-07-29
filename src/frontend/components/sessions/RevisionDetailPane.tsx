@@ -11,11 +11,9 @@
 import { useState } from "react";
 import {
   AlertTriangle,
-  Check,
   Clock,
   Code,
   Coins,
-  Copy,
   Cpu,
   FileCode,
   GitFork,
@@ -48,7 +46,6 @@ export function RevisionDetailPane({
   const [pinning, setPinning] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [showPayload, setShowPayload] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   const isSeed = revision.parentRevisionId === null;
   const hasFallback =
@@ -76,12 +73,6 @@ export function RevisionDetailPane({
     } finally {
       setRetrying(false);
     }
-  };
-
-  const copyPrompt = () => {
-    navigator.clipboard.writeText(revision.promptText || "");
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
@@ -142,29 +133,6 @@ export function RevisionDetailPane({
           </div>
         </div>
       )}
-
-      {/* Verbatim Prompt Text */}
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span className="font-mono uppercase">Full Prompt (Verbatim)</span>
-          <button
-            onClick={copyPrompt}
-            className="flex items-center gap-1 font-mono hover:text-foreground"
-          >
-            {copied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-            {copied ? "Copied" : "Copy"}
-          </button>
-        </div>
-        <div className="rounded-lg bg-background p-3 font-mono text-xs text-foreground ring-1 ring-border/40 leading-relaxed break-words">
-          {isSeed ? (
-            <span className="text-muted-foreground italic">
-              Original seed image node (Root of session tree).
-            </span>
-          ) : (
-            revision.promptText || "No natural language prompt provided (Structured edit payload)."
-          )}
-        </div>
-      </div>
 
       {/* Specs Metadata Grid */}
       <div className="grid grid-cols-2 gap-3 text-xs">

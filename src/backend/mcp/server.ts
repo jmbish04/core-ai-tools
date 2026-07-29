@@ -36,6 +36,7 @@ import {
   rejectRevision,
   retryRevision,
   setAssetTtl,
+  softDeleteMask,
   submitEdit,
   getSessionTree,
 } from "@/backend/core";
@@ -44,8 +45,10 @@ import { listModels } from "@/backend/ai/registry";
 import { buildMcpEditPayload } from "./payload";
 import {
   imageContentBlock,
+  maskImageBlock,
   revisionImageBlock,
   serializeLibrary,
+  serializeMasks,
   serializeSessions,
   serializeSessionTree,
 } from "./serialize";
@@ -165,7 +168,8 @@ const TOOLS: Record<string, ToolDef> = {
     handler: (ctx, a) => rejectRevision(ctx, { revisionId: a.revisionId as string, rejectionReason: a.reason as string, rejectedBySurface: "mcp" }),
   },
   create_mask: {
-    description: `Create a mask. kind='semantic' resolves a natural-language region to a proposed mask. ${SESSION_NOTE}`,
+    description:
+      `Draw a mask over the source image. kind='bbox' (geometry {x,y,w,h} in 0–1), 'polygon' (geometry {points:[[x,y],…]} in 0–1), or 'semantic' (resolves a natural-language region, e.g. "the countertop"). Returns the mask row incl. its id (the same id shown in the UI). Call get_mask_image to SEE the result and ask the user to confirm. ${SESSION_NOTE}`,
     schema: z.object({
       sessionUuid: z.string().optional(),
       sourceImageId: z.string(),
@@ -182,14 +186,27 @@ const TOOLS: Record<string, ToolDef> = {
     },
   },
   list_masks: {
-    description: "List masks for a session (or library-scoped).",
+    description:
+      "List masks for a session (or library-scoped). Each row carries its id (visible in the UI too), kind, geometry, mode, state, plus maskThumbUrl/maskImageUrl (the painted raster) and sourceImageUrls.",
     schema: z.object({ sessionUuid: z.string().optional() }),
-    handler: (ctx, a) => listMasks(ctx, a as any),
+    handler: async (ctx, a, host) => serializeMasks(ctx, await listMasks(ctx, a as any), `https://${host}`),
   },
   describe_mask: {
-    description: "Return a mask + a preview composited over the source (confirm before an expensive edit).",
+    description: "Return a mask row + geometry. To SEE the mask over the image, call get_mask_image.",
     schema: z.object({ maskId: z.string() }),
     handler: (ctx, a) => describeMask(ctx, a.maskId as string),
+  },
+  get_mask_image: {
+    description:
+      "SEE a mask for confirmation: returns an MCP image of the source with the mask drawn over it (semi-transparent). Use this to ask the user whether the mask is correct before running an edit.",
+    raw: true,
+    schema: z.object({ maskId: z.string() }),
+    handler: async (ctx, a) => [await maskImageBlock(ctx, a.maskId as string)],
+  },
+  drop_mask: {
+    description: "Drop (soft-delete) a mask by id — e.g. when the user rejects it, or to clear masks so a model that can't handle masks can run. Revision history keeps its reference.",
+    schema: z.object({ maskId: z.string() }),
+    handler: (ctx, a) => softDeleteMask(ctx, a.maskId as string),
   },
   list_library: {
     description: "List library images. Each row carries thumbUrl/imageUrl. To SEE an image, call get_library_image.",

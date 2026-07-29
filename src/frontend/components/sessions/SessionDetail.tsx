@@ -303,6 +303,34 @@ export function SessionDetail({ uuid }: { uuid: string }) {
               </div>
             </div>
           )}
+
+          {/* Full prompt — under the image where there's room, with line breaks
+              and paragraph spacing preserved (not collapsed into one block). */}
+          {selectedNode && (
+            <div className="rounded-xl bg-card p-5 ring-1 ring-border/40">
+              <div className="mb-2 flex items-center gap-2">
+                <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+                  Full Prompt
+                </span>
+                {selectedNode.revLabel && (
+                  <Badge variant="outline" className="font-mono text-[10px]">
+                    {selectedNode.revLabel}
+                  </Badge>
+                )}
+              </div>
+              <div className="max-h-[460px] overflow-auto rounded-lg bg-background p-4 ring-1 ring-border/40">
+                {selectedNode.parentRevisionId === null ? (
+                  <p className="text-sm italic text-muted-foreground">
+                    Original seed image — root of the session tree.
+                  </p>
+                ) : (
+                  <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">
+                    {selectedNode.promptText || "No natural-language prompt (structured edit payload)."}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right Column: Compose Pane & Selected Revision Detail */}

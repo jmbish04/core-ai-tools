@@ -133,6 +133,18 @@ export async function confirmMask(ctx: CoreContext, maskId: string): Promise<Mas
   return row;
 }
 
+/** Soft-delete (drop) a mask. Idempotent; never a hard delete (revision history
+ * may reference it). Returns the updated row. */
+export async function softDeleteMask(ctx: CoreContext, maskId: string): Promise<Mask> {
+  await requireMask(ctx, maskId);
+  const [row] = await ctx.db
+    .update(masks)
+    .set({ deletedAt: new Date() })
+    .where(eq(masks.id, maskId))
+    .returning();
+  return row;
+}
+
 /** Fetch a LIVE mask or throw NotFound. */
 export async function requireMask(ctx: CoreContext, maskId: string): Promise<Mask> {
   const [row] = await ctx.db
