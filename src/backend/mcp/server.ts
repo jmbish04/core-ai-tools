@@ -17,6 +17,7 @@ import {
   createFolder,
   createMask,
   createSemanticMask,
+  rasterizeAndUploadMask,
   createSession,
   describeMask,
   executeRevision,
@@ -178,20 +179,43 @@ const TOOLS: Record<string, ToolDef> = {
   },
   create_mask: {
     description:
-      `Draw a mask over the source image. kind='bbox' (geometry {x,y,w,h} in 0–1), 'polygon' (geometry {points:[[x,y],…]} in 0–1), or 'semantic' (resolves a natural-language region, e.g. "the countertop"). Returns the mask row incl. its id (the same id shown in the UI). Call get_mask_image to SEE the result and ask the user to confirm. ${SESSION_NOTE}`,
+      `Create a mask and get back a maskId to pass to submit_edit(maskId, maskMode). ` +
+      `kind='bbox' geometry={x,y,w,h} (0–1); kind='polygon' geometry={points:[{x,y}…]} (0–1); ` +
+      `both rasterise server-side to the exact edit region — no segmenter or human draw needed. ` +
+      `kind='semantic' resolves a natural-language region ('the shower head', 'the countertop') via segmentation. ` +
+      `kind='raster' expects a pre-uploaded PNG via cfImageId. Explicit bbox/polygon are 'confirmed' ` +
+      `(precise, ungated); semantic is 'proposed' (a blind estimate). Returns the mask row incl. its id (the ` +
+      `same id shown in the UI); call get_mask_image / describe_mask to SEE the result and confirm. ${SESSION_NOTE}`,
     schema: z.object({
       sessionUuid: z.string().optional(),
       sourceImageId: z.string(),
       kind: z.enum(["bbox", "polygon", "raster", "semantic"]),
       geometry: z.any().optional(),
+      cfImageId: z.string().optional(),
       description: z.string().optional(),
+      label: z.string().optional(),
       maskMode: z.enum(["inpaint", "preserve"]).optional(),
     }),
-    handler: (ctx, a) => {
+    handler: async (ctx, a) => {
       if (a.kind === "semantic") {
         return createSemanticMask(ctx, { sessionUuid: a.sessionUuid as string, sourceImageId: a.sourceImageId as string, description: String(a.description ?? ""), createdVia: "mcp" });
       }
-      return createMask(ctx, { ...(a as any), createdVia: "mcp" });
+      // Explicit geometry is a precise instruction, not a blind estimate — don't
+      // gate it behind approval, so a bbox inpaint lands in one surgical pass.
+      // bbox/polygon carry no PNG; rasterise + upload so they reach the provider.
+      let cfImageId = (a.cfImageId as string | undefined) ?? null;
+      let coverageRatio: number | undefined;
+      if (a.kind === "bbox" || a.kind === "polygon") {
+        const r = await rasterizeAndUploadMask(ctx, {
+          kind: a.kind,
+          geometry: a.geometry,
+          sourceImageId: a.sourceImageId as string,
+        });
+        cfImageId = r.cfImageId;
+        coverageRatio = r.coverageRatio;
+      }
+      const state = a.kind === "bbox" || a.kind === "polygon" ? "confirmed" : undefined;
+      return createMask(ctx, { ...(a as any), cfImageId, coverageRatio, state, createdVia: "mcp" });
     },
   },
   list_masks: {

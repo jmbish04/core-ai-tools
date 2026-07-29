@@ -299,6 +299,8 @@ export function MaskBrushModal({
         sourceImageId,
         kind,
         geometry: geometryData,
+        // Semantic: the label IS the region description the server segments on.
+        description: kind === "semantic" ? label : undefined,
         coverageRatio,
         rasterPngBase64,
         label,

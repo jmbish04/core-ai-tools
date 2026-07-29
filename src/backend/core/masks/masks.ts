@@ -23,7 +23,10 @@ import type { Mask } from "@/backend/db/schema";
 import type { CoreContext } from "../context";
 import { EventType } from "../events";
 import { NotFoundError, ValidationError } from "../errors";
+import { uploadImageBytes, variantUrl } from "../images";
 import { requireImage } from "../library/images";
+import { bboxCoverageRatio, polygonCoverageRatio } from "./geometry";
+import { rasterizeMaskPng } from "./rasterize";
 
 export type MaskKind = "bbox" | "polygon" | "raster" | "semantic";
 export type MaskState = "proposed" | "confirmed" | "rejected";
@@ -46,6 +49,37 @@ export interface CreateMaskInput {
   /** Defaults to 'proposed' (MCP-authored masks are blind estimates, gated). */
   state?: MaskState;
   createdVia?: "ui" | "api" | "mcp";
+}
+
+/**
+ * Rasterise a geometric mask (bbox/polygon) to the white=edit/transparent=preserve
+ * PNG the provider consumes, upload it to Cloudflare Images, and return the id +
+ * computed coverage. Call this at the SURFACE (MCP/REST) before `createMask`, the
+ * same way a painted raster PNG is uploaded there — a geometric mask with no
+ * cf_image_id is invisible to the provider (maskBase64 is undefined at edit time)
+ * and silently does nothing. Keeps `createMask` pure (no I/O), so the core stays
+ * testable with no image binding.
+ */
+export async function rasterizeAndUploadMask(
+  ctx: CoreContext,
+  input: { kind: "bbox" | "polygon"; geometry: unknown; sourceImageId: string },
+): Promise<{ cfImageId: string; coverageRatio: number }> {
+  const image = await requireImage(ctx, input.sourceImageId);
+  const png = await rasterizeMaskPng({
+    kind: input.kind,
+    geometry: input.geometry,
+    sourceWidth: image.width,
+    sourceHeight: image.height,
+  });
+  const up = await uploadImageBytes(ctx.env, png, {
+    filename: `mask-${input.sourceImageId}.png`,
+    metadata: { kind: "mask" },
+  });
+  const coverageRatio =
+    input.kind === "bbox"
+      ? bboxCoverageRatio(input.geometry as { w: number; h: number })
+      : polygonCoverageRatio(input.geometry as { points: Array<{ x: number; y: number }> });
+  return { cfImageId: up.cfImageId, coverageRatio };
 }
 
 /** Create (persist) a mask row. Returns the row with its `mask_id`. */
@@ -103,17 +137,21 @@ export async function listMasks(
 export interface DescribeMaskResult {
   mask: Mask;
   /**
-   * Preview of the mask composited over its source image, for blind-mask
-   * confirmation over MCP. Compositing needs Cloudflare Images transforms
-   * (Phase 3) and lands in Phase 5 — null until then.
+   * The rasterised mask region (white=edit / transparent=preserve PNG), for
+   * confirming a blind or geometric mask over MCP. Now that bbox/polygon/semantic
+   * masks all rasterise to a cf_image_id on create, every mask with pixels
+   * surfaces one; purely geometric rows with no PNG return null.
+   * ponytail: this is the mask alone, not composited over the source — enough to
+   * confirm the region. Upgrade to an over-source composite if confirmation needs it.
    */
   previewUrl: string | null;
 }
 
-/** Return a mask plus (Phase 5) a composited preview URL. */
+/** Return a mask plus a preview URL of its rasterised region. */
 export async function describeMask(ctx: CoreContext, maskId: string): Promise<DescribeMaskResult> {
   const mask = await requireMask(ctx, maskId);
-  return { mask, previewUrl: null };
+  const previewUrl = mask.cfImageId ? await variantUrl(ctx.env, mask.cfImageId, "full") : null;
+  return { mask, previewUrl };
 }
 
 /** Mark a mask confirmed (used by the approval flow when a proposal is accepted). */
