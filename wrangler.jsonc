@@ -1,6 +1,10 @@
 {
   "name": "core-ai-tools",
-  "main": "dist/_worker.js/index.js",
+  // @astrojs/cloudflare v14: `main` names the SOURCE Worker entry. `astro build`
+  // compiles it (resolving the adapter's virtual config + SSR manifest) and emits
+  // the deploy config wrangler uses. The entry exports the default handler + the
+  // Durable Object classes (see src/_worker.ts).
+  "main": "./src/_worker.ts",
   "compatibility_date": "2026-05-25",
   "compatibility_flags": ["nodejs_compat"],
   "upload_source_maps": true,

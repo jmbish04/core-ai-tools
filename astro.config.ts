@@ -34,13 +34,12 @@ export default defineConfig({
         exclude: [],
       },
     },
-    // Configure worker entry point with Durable Object exports.
-    // These names must match the DO classes re-exported from `src/_worker.ts`
-    // and the `durable_objects.bindings` class names in `wrangler.jsonc`.
-    workerEntryPoint: {
-      path: "src/_worker.ts",
-      namedExports: ["ChatBroker", "NotificationsAgent", "SessionDO"],
-    },
+    // NOTE: @astrojs/cloudflare v14 REMOVED `workerEntryPoint`. The custom entry
+    // + Durable Object exports now live in the file named by wrangler.jsonc
+    // `main` (./src/_worker.ts): it imports `handle` from
+    // "@astrojs/cloudflare/handler" for SSR and exports the DO classes directly.
+    // `astro build` compiles that entry (resolving the adapter's virtual config)
+    // and emits the deploy config wrangler uses.
   }),
   integrations: [react()],
   vite: {
