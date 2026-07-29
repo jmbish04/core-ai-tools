@@ -107,6 +107,9 @@ importers:
       mind-elixir:
         specifier: 5.14.0
         version: 5.14.0
+      openai:
+        specifier: ^7.1.0
+        version: 7.1.0(ws@8.21.0)(zod@4.4.3)
       platejs:
         specifier: 53.2.4
         version: 53.2.4(@types/react@19.2.17)(immer@11.1.15)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(scheduler@0.27.0)(use-sync-external-store@1.6.0(react@19.2.8))
@@ -5076,6 +5079,27 @@ packages:
   open@8.4.2:
     resolution: {integrity: sha512-7x81NCL719oNbsq/3mh+hVrAWmFuEYUqrq/Iw3kUzH8ReypT9QQ0BLoJS7/G9k6N81XjW4qHWtjWwe/9eLy1EQ==}
     engines: {node: '>=12'}
+
+  openai@7.1.0:
+    resolution: {integrity: sha512-7xWJ9iO5z5u1dnIUGwoUmZHkSyrUYXX2cUxo2E/26iKFrSC8IdEak7z94d5UntU7z+S/Cid33hYymwMSab2fZQ==}
+    engines: {node: '>=22.0.0'}
+    peerDependencies:
+      '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
+      '@smithy/hash-node': '>=4.3.0 <5'
+      '@smithy/signature-v4': '>=5.4.0 <6'
+      ws: ^8.18.0
+      zod: ^3.25 || ^4.0
+    peerDependenciesMeta:
+      '@aws-sdk/credential-provider-node':
+        optional: true
+      '@smithy/hash-node':
+        optional: true
+      '@smithy/signature-v4':
+        optional: true
+      ws:
+        optional: true
+      zod:
+        optional: true
 
   openapi3-ts@4.6.0:
     resolution: {integrity: sha512-a4sfn6L2sIShhtzJqmjGrARvxAW/3F2BJDdyRVvNF9VhAsZSh5hSyI3a9TNvmzBxXmq66nY5LNT5bQcBxYAZZg==}
@@ -10820,6 +10844,11 @@ snapshots:
       define-lazy-prop: 2.0.0
       is-docker: 2.2.1
       is-wsl: 2.2.0
+
+  openai@7.1.0(ws@8.21.0)(zod@4.4.3):
+    optionalDependencies:
+      ws: 8.21.0
+      zod: 4.4.3
 
   openapi3-ts@4.6.0:
     dependencies:
