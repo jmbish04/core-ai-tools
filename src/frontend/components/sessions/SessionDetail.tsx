@@ -201,16 +201,16 @@ export function SessionDetail({ uuid }: { uuid: string }) {
           >
             <ArrowLeft className="h-4 w-4" />
           </a>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h1 className="text-xl font-semibold tracking-tight text-foreground">
+              <h1 className="truncate text-xl font-semibold tracking-tight text-foreground">
                 {session.title || "Untitled Session"}
               </h1>
-              <Badge variant="outline" className="font-mono text-[10px] uppercase">
+              <Badge variant="outline" className="shrink-0 font-mono text-[10px] uppercase">
                 {session.status}
               </Badge>
             </div>
-            <p className="font-mono text-xs text-muted-foreground mt-0.5">
+            <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
               UUID: {session.sessionUuid} &bull; Created via {session.createdVia.toUpperCase()}
             </p>
           </div>

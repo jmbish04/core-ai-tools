@@ -42,6 +42,13 @@ import {
 import type { CoreContext } from "@/backend/core";
 import { listModels } from "@/backend/ai/registry";
 import { buildMcpEditPayload } from "./payload";
+import {
+  imageContentBlock,
+  revisionImageBlock,
+  serializeLibrary,
+  serializeSessions,
+  serializeSessionTree,
+} from "./serialize";
 
 // Auth is enforced by the OAuth 2.1 layer (workers-oauth-provider) that wraps
 // this handler: OAuth-issued access tokens are validated before `handleMcp` runs,
@@ -55,6 +62,8 @@ interface ToolDef {
   description: string;
   schema: z.ZodTypeAny;
   handler: (ctx: CoreContext, args: Record<string, unknown>, host: string) => Promise<unknown>;
+  /** Handler returns MCP content blocks directly (e.g. image blocks) — not JSON. */
+  raw?: boolean;
 }
 
 /** Wrap a revision result in the §4.2 compact payload. */
@@ -84,9 +93,9 @@ const TOOLS: Record<string, ToolDef> = {
     handler: (ctx, a) => createSession(ctx, { ...(a as any), createdVia: "mcp" }),
   },
   list_sessions: {
-    description: "List sessions.",
+    description: "List sessions. Each row carries originImageUrls (thumb/full) for its origin image.",
     schema: z.object({ status: z.enum(["active", "archived"]).optional(), limit: z.number().optional() }),
-    handler: (ctx, a) => listSessions(ctx, a as any),
+    handler: async (ctx, a, host) => serializeSessions(ctx, await listSessions(ctx, a as any), `https://${host}`),
   },
   list_sessions_for_image: {
     description: "Every session descended from one library image.",
@@ -94,9 +103,10 @@ const TOOLS: Record<string, ToolDef> = {
     handler: (ctx, a) => listSessionsForImage(ctx, a.imageId as string),
   },
   get_session_tree: {
-    description: `Full revision tree, retry attempts grouped. ${SESSION_NOTE}`,
+    description: `Full revision tree, retry attempts grouped. Every image reference (seed, each attempt's input + output, multi-image reference sets) carries thumbUrl/imageUrl. To SEE a render, call get_revision_image. ${SESSION_NOTE}`,
     schema: z.object({ sessionUuid: z.string() }),
-    handler: (ctx, a) => getSessionTree(ctx, a.sessionUuid as string),
+    handler: async (ctx, a, host) =>
+      serializeSessionTree(ctx, await getSessionTree(ctx, a.sessionUuid as string), `https://${host}`),
   },
   submit_edit: {
     description: `Create a revision (queued or awaiting_approval); progress streams to the web UI. ${SESSION_NOTE} Supply idempotency_key so a retry of a dropped call returns the same revision.`,
@@ -182,9 +192,36 @@ const TOOLS: Record<string, ToolDef> = {
     handler: (ctx, a) => describeMask(ctx, a.maskId as string),
   },
   list_library: {
-    description: "List library images.",
+    description: "List library images. Each row carries thumbUrl/imageUrl. To SEE an image, call get_library_image.",
     schema: z.object({ folderId: z.string().optional(), limit: z.number().optional() }),
-    handler: (ctx, a) => listLibrary(ctx, a as any),
+    handler: async (ctx, a, host) => serializeLibrary(ctx, await listLibrary(ctx, a as any), `https://${host}`),
+  },
+  get_revision_image: {
+    description:
+      "Return a revision's image as an MCP image content block you can actually SEE (base64). which=output|input (default output), variant=thumb|full (default thumb — small, ~512px). Use this whenever get_session_tree hands you an outputImageId you want to inspect.",
+    raw: true,
+    schema: z.object({
+      revisionUuid: z.string(),
+      which: z.enum(["output", "input"]).optional(),
+      variant: z.enum(["thumb", "full"]).optional(),
+    }),
+    handler: async (ctx, a) => [
+      await revisionImageBlock(
+        ctx,
+        a.revisionUuid as string,
+        (a.which as "output" | "input") ?? "output",
+        (a.variant as "thumb" | "full") ?? "thumb",
+      ),
+    ],
+  },
+  get_library_image: {
+    description:
+      "Return a library image (seed/reference) as an MCP image content block you can SEE (base64). variant=thumb|full (default thumb).",
+    raw: true,
+    schema: z.object({ libraryImageId: z.string(), variant: z.enum(["thumb", "full"]).optional() }),
+    handler: async (ctx, a) => [
+      await imageContentBlock(ctx, a.libraryImageId as string, (a.variant as "thumb" | "full") ?? "thumb"),
+    ],
   },
   create_folder: {
     description: "Create a library folder.",
@@ -317,11 +354,17 @@ export async function handleMcp(request: Request, env: Env): Promise<Response> {
       try {
         const parsed = tool.schema.parse(args);
         const out = await tool.handler(ctx, parsed as Record<string, unknown>, host);
+        // raw tools return MCP content blocks directly (image bytes); everything
+        // else returns JSON we wrap in a text block. Never log base64 bytes.
+        const content = tool.raw ? (out as unknown[]) : [{ type: "text", text: JSON.stringify(out, null, 2) }];
+        const logResponse = tool.raw
+          ? { blocks: (out as Array<{ type?: string; mimeType?: string }>).map((b) => ({ type: b.type, mimeType: b.mimeType })) }
+          : out;
         if (log)
-          await finishMcpLog(ctx, { log, success: true, response: out, revisionId: sniffRevisionId(out) }).catch(
+          await finishMcpLog(ctx, { log, success: true, response: logResponse, revisionId: tool.raw ? undefined : sniffRevisionId(out) }).catch(
             (e) => console.error("[mcp] log finish failed:", e instanceof Error ? e.message : String(e)),
           );
-        return result(body.id, { content: [{ type: "text", text: JSON.stringify(out, null, 2) }] });
+        return result(body.id, { content });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (log)

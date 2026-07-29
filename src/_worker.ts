@@ -1,28 +1,23 @@
 /**
  * @fileoverview Cloudflare Workers entry point for Astro SSR + Hono API +
- * Durable Objects (the `workerEntryPoint` for `@astrojs/cloudflare`).
+ * Durable Objects — the Worker `main` (wrangler.jsonc → `main: src/_worker.ts`).
  *
- * The adapter's generated `dist/_worker.js/index.js`:
- *   1. calls `start(manifest, args)` (if exported) to hand us the SSR manifest,
- *   2. calls `createExports()` to get the default fetch handler + DO classes,
- *   3. re-exports those DO classes alongside the default handler.
+ * @astrojs/cloudflare v14 dropped the v5-era `workerEntryPoint` +
+ * `start(manifest)`/`createExports()` injection. So this is now a plain Worker
+ * module that wrangler bundles directly: it exports a default handler and the DO
+ * classes, and delegates SSR to the adapter's `handle(request, env, ctx)`
+ * (imported from `@astrojs/cloudflare/handler`), which lazily builds the Astro
+ * app from the build manifest emitted by `astro build` and also falls through to
+ * the `ASSETS` binding for static files. `astro build` emits the SSR output;
+ * `wrangler deploy` bundles THIS file as the entry.
  *
- * Our handler routes:
- *   - `/agents/*`        → the Agents SDK router (`routeAgentRequest`)
- *   - `/api/*` + doc URLs → the Hono app
- *   - everything else    → Astro SSR via the adapter's `handle()` (which also
- *                          falls through to the `ASSETS` binding for static
- *                          files). This is the piece a naive `env.ASSETS.fetch`
- *                          custom entry forgets — without it, SSR pages 404.
- *
- * In addition to `fetch`, the handler exports `email(message, env, ctx)` —
- * Cloudflare Email Routing's inbound entry point. It parses + stores received
- * mail in D1 for the `/inbox` showcase (see `backend/email/inbound.ts`). The
- * handler is attached to BOTH the object returned by `createExports().default`
- * (what the Astro adapter re-exports) AND the standalone default export.
+ * Routing: `/agents/*` → Agents SDK router; `/ws|/realtime` → SessionDO WS proxy
+ * (cookie-gated); `/api/*` + doc URLs → Hono; page navigations → session-cookie
+ * gate; everything else → Astro SSR. `/mcp` + OAuth endpoints are owned by the
+ * OAuthProvider that wraps this handler's `fetch`. `email(message, env, ctx)` is
+ * Cloudflare Email Routing's inbound entry (stores mail in D1 for `/inbox`).
  */
 
-import { App } from "astro/app";
 import { handle } from "@astrojs/cloudflare/handler";
 import type { ExportedHandler } from "@cloudflare/workers-types";
 import { routeAgentRequest } from "agents";
@@ -61,12 +56,11 @@ import { ChatBroker } from "./backend/ai/agents/ChatBroker";
 import { NotificationsAgent } from "./backend/ai/agents/NotificationsAgent";
 import { SessionDO } from "./backend/realtime/session-do";
 
-// Re-export Durable Object classes (Pattern B: the @astrojs/cloudflare adapter
-// re-exports these alongside the default handler so Cloudflare resolves every
-// DO binding declared in wrangler.jsonc).
+// Re-export Durable Object classes so Cloudflare resolves every DO binding
+// declared in wrangler.jsonc. wrangler bundles this module as the Worker entry,
+// so these named exports ARE the deployed Worker's DO exports.
 export { ChatBroker, NotificationsAgent, SessionDO };
 
-/** True for paths the Hono API owns (REST + OpenAPI doc surfaces). */
 /**
  * True for an HTML page navigation that should be gated behind the session
  * cookie. Excludes /login (the gate's own escape hatch), the API + agent/ws/mcp
@@ -104,145 +98,94 @@ function isApiPath(pathname: string): boolean {
   // mounted at `/api/docs/*`, which is covered by the `/api/` prefix above.
 }
 
-// Astro SSR app + manifest, populated by `start()` before the first request.
-let astroApp: App | undefined;
-let astroManifest: any;
-
 /**
- * Called by the adapter's generated entry with the SSR manifest. We build the
- * Astro `App` here so the fetch handler can render pages.
+ * The base Worker handler. `request as any` at the call sites bridges the
+ * lib.dom (Hono) vs @cloudflare/workers-types (`agents` / ASSETS / Astro)
+ * `Request` type friction.
  */
-export function start(manifest: any, _args: unknown) {
-  astroManifest = manifest;
-  astroApp = new App(manifest);
-}
-
-/**
- * Build the worker's default fetch handler + the DO class exports. Invoked by
- * the adapter's generated entry (after `start`).
- *
- * NOTE: `request as any` at the call sites bridges the lib.dom (Hono) vs
- * @cloudflare/workers-types (`agents` / ASSETS / Astro) `Request` type friction.
- */
-export function createExports() {
-  const handler = {
-    async fetch(request: Request, env: Env, ctx: ExecutionContext) {
-      const url = new URL(request.url);
-
-      // 1. Agents SDK WebSocket/HTTP routing: /agents/:agent-name/:instance.
-      if (url.pathname.startsWith("/agents/")) {
-        const agentResponse = await routeAgentRequest(request as any, env);
-        if (agentResponse) return agentResponse;
-      }
-
-      // NOTE: `/mcp` + the OAuth endpoints (/authorize, /token, /register,
-      // /.well-known/*) are handled by the OAuthProvider that wraps THIS handler
-      // (see the bottom of createExports). They never reach here.
-
-      // 1b. SessionDO realtime WebSocket: /ws/session/:uuid. This is a genuine
-      // raw-request proxy (forwarding the caller's WS upgrade), which is the
-      // sanctioned use of stub.fetch — NOT method dispatch (that goes via RPC).
-      // Accept both the original `/ws/session/:uuid` and the design build's
-      // `/realtime/ws/sessions/:uuid`; both proxy the WS upgrade to the SessionDO.
-      const wsPrefix = url.pathname.startsWith("/realtime/ws/sessions/")
-        ? "/realtime/ws/sessions/"
-        : url.pathname.startsWith("/ws/session/")
-          ? "/ws/session/"
-          : null;
-      if (wsPrefix) {
-        const uuid = url.pathname.slice(wsPrefix.length);
-        if (uuid) {
-          // Gate the realtime channel behind the session cookie. The browser WS
-          // upgrade carries same-origin cookies; bearer isn't usable on a
-          // WebSocket, so cookie-only here.
-          if (!(await verifySessionCookie(env, request.headers.get("Cookie")))) {
-            return new Response("Unauthorized", { status: 401 });
-          }
-          const stub = env.SESSION_DO.getByName(uuid);
-          return stub.fetch(request as any);
-        }
-      }
-
-      // 2. REST API + OpenAPI docs → Hono.
-      if (isApiPath(url.pathname)) {
-        return honoApp.fetch(request as any, env, ctx);
-      }
-
-      // 2b. Gate HTML page navigations behind the session cookie. /login is the
-      // public escape hatch; the API enforces its own auth (cookie OR
-      // WORKER_API_KEY bearer). Unauthenticated page loads redirect to /login.
-      if (isPageRequest(url.pathname)) {
-        const authed = await verifySessionCookie(env, request.headers.get("Cookie"));
-        if (!authed) {
-          const to = new URL("/login", url);
-          if (url.pathname !== "/") to.searchParams.set("next", url.pathname);
-          return new Response(null, { status: 302, headers: { Location: to.toString() } });
-        }
-      }
-
-      // 3. Everything else → Astro SSR (with static-asset fallthrough).
-      if (astroApp) {
-        return handle(astroManifest, astroApp, request as any, env as any, ctx as any);
-      }
-      return env.ASSETS.fetch(request as any);
-    },
-
-    // Cloudflare Email Routing inbound handler. Invoked when a routing rule
-    // targets this Worker (configured in the dashboard / via `wrangler email
-    // routing`). Parses + stores the email in D1 for the `/inbox` showcase.
-    async email(message: any, env: Env, ctx: ExecutionContext) {
-      await handleInboundEmail(message, env, ctx);
-    },
-
-    // Cron trigger — stuck-revision reaper + usage-outbox drain (see wrangler crons).
-    async scheduled(_event: unknown, env: Env, ctx: ExecutionContext) {
-      ctx.waitUntil(runMaintenance(env));
-    },
-  } as unknown as ExportedHandler<Env>;
-
-  // Wrap the base handler with the OAuth 2.1 provider: it owns `/mcp` (protected),
-  // `/authorize`, `/token`, `/register`, and `/.well-known/*`, delegating
-  // everything else back to `handler`. Email routing stays on the default export
-  // (OAuthProvider only wraps `fetch`).
-  const oauth = buildOAuthHandler(handler as unknown as import("@cloudflare/workers-types").ExportedHandler<Env>);
-  const wrapped = {
-    fetch: (request: Request, env: Env, ctx: ExecutionContext) =>
-      oauth.fetch(request as never, env as never, ctx as never),
-    email: (handler as { email: (m: unknown, e: Env, c: ExecutionContext) => Promise<void> }).email,
-    scheduled: (handler as { scheduled: (e: unknown, env: Env, c: ExecutionContext) => Promise<void> }).scheduled,
-  } as unknown as ExportedHandler<Env>;
-
-  return {
-    default: wrapped,
-    ChatBroker,
-    NotificationsAgent,
-    SessionDO,
-  };
-}
-
-/**
- * Default export for standalone (non-Astro) usage. The Astro build uses
- * `createExports().default` instead; this exists only so the module is also a
- * valid Worker on its own (no SSR — API + assets only).
- */
-const handler = {
+const base = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
+
+    // 1. Agents SDK WebSocket/HTTP routing: /agents/:agent-name/:instance.
     if (url.pathname.startsWith("/agents/")) {
       const agentResponse = await routeAgentRequest(request as any, env);
       if (agentResponse) return agentResponse;
     }
+
+    // NOTE: `/mcp` + the OAuth endpoints (/authorize, /token, /register,
+    // /.well-known/*) are handled by the OAuthProvider that wraps THIS handler.
+    // They never reach here.
+
+    // 1b. SessionDO realtime WebSocket: /ws/session/:uuid. A genuine raw-request
+    // proxy (forwarding the caller's WS upgrade) — the sanctioned use of
+    // stub.fetch. Accept both `/ws/session/:uuid` and the design build's
+    // `/realtime/ws/sessions/:uuid`.
+    const wsPrefix = url.pathname.startsWith("/realtime/ws/sessions/")
+      ? "/realtime/ws/sessions/"
+      : url.pathname.startsWith("/ws/session/")
+        ? "/ws/session/"
+        : null;
+    if (wsPrefix) {
+      const uuid = url.pathname.slice(wsPrefix.length);
+      if (uuid) {
+        // Gate the realtime channel behind the session cookie. The browser WS
+        // upgrade carries same-origin cookies; bearer isn't usable on a
+        // WebSocket, so cookie-only here.
+        if (!(await verifySessionCookie(env, request.headers.get("Cookie")))) {
+          return new Response("Unauthorized", { status: 401 });
+        }
+        const stub = env.SESSION_DO.getByName(uuid);
+        return stub.fetch(request as any);
+      }
+    }
+
+    // 2. REST API + OpenAPI docs → Hono.
     if (isApiPath(url.pathname)) {
       return honoApp.fetch(request as any, env, ctx);
     }
-    return env.ASSETS.fetch(request as any);
+
+    // 2b. Gate HTML page navigations behind the session cookie. /login is the
+    // public escape hatch; the API enforces its own auth (cookie OR
+    // WORKER_API_KEY bearer). Unauthenticated page loads redirect to /login.
+    if (isPageRequest(url.pathname)) {
+      const authed = await verifySessionCookie(env, request.headers.get("Cookie"));
+      if (!authed) {
+        const to = new URL("/login", url);
+        if (url.pathname !== "/") to.searchParams.set("next", url.pathname);
+        return new Response(null, { status: 302, headers: { Location: to.toString() } });
+      }
+    }
+
+    // 3. Everything else → Astro SSR. The v14 adapter handler lazily builds the
+    // Astro app from the emitted manifest and falls through to ASSETS for static
+    // files — without it, SSR pages 404.
+    return handle(request as any, env as any, ctx as any);
   },
 
-  // Email Routing inbound handler (mirrors the one on `createExports().default`)
-  // so this module is a valid standalone Worker target for a routing rule too.
+  // Cloudflare Email Routing inbound handler. Invoked when a routing rule
+  // targets this Worker (configured in the dashboard / via `wrangler email
+  // routing`). Parses + stores the email in D1 for the `/inbox` showcase.
   async email(message: any, env: Env, ctx: ExecutionContext) {
     await handleInboundEmail(message, env, ctx);
   },
+
+  // Cron trigger — stuck-revision reaper + usage-outbox drain (see wrangler crons).
+  async scheduled(_event: unknown, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(runMaintenance(env));
+  },
+} as unknown as ExportedHandler<Env>;
+
+// Wrap the base handler with the OAuth 2.1 provider: it owns `/mcp` (protected),
+// `/authorize`, `/token`, `/register`, and `/.well-known/*`, delegating
+// everything else back to `base`. Email + scheduled stay on the default export
+// (OAuthProvider only wraps `fetch`).
+const oauth = buildOAuthHandler(base as unknown as import("@cloudflare/workers-types").ExportedHandler<Env>);
+const handler = {
+  fetch: (request: Request, env: Env, ctx: ExecutionContext) =>
+    oauth.fetch(request as never, env as never, ctx as never),
+  email: (base as { email: (m: unknown, e: Env, c: ExecutionContext) => Promise<void> }).email,
+  scheduled: (base as { scheduled: (e: unknown, env: Env, c: ExecutionContext) => Promise<void> }).scheduled,
 } as unknown as ExportedHandler<Env>;
 
 export default handler;

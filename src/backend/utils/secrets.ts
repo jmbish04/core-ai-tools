@@ -74,6 +74,15 @@ export async function getOpenAiApiKey(env: Env): Promise<string | undefined> {
   return getSecret(env, "OPENAI_API_KEY");
 }
 
+/**
+ * AI Gateway auth token — sent as `cf-aig-authorization: Bearer <token>` when a
+ * request is routed through an authenticated Cloudflare AI Gateway. Optional: if
+ * unset, the gateway must be unauthenticated (or we call the provider directly).
+ */
+export async function getAiGatewayToken(env: Env): Promise<string | undefined> {
+  return getSecret(env, "AI_GATEWAY_TOKEN");
+}
+
 /** Fetch the Cloudflare account id. */
 export async function getCloudflareAccountId(env: Env): Promise<string | undefined> {
   if (env.CLOUDFLARE_ACCOUNT_ID) {

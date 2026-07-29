@@ -26,7 +26,11 @@ import { apiGet, apiSend } from "@/lib/api";
 interface ModelOption {
   id: string;
   provider: string;
-  displayName: string;
+  // The registry / `/api/models` returns snake_case (ModelEntry). The previous
+  // `displayName` read was always undefined — hence the picker showing only
+  // "(google)". Match the wire shape.
+  display_name: string;
+  deprecated?: boolean;
   capabilities: {
     mask_inpainting: boolean;
     image_to_image: boolean;
@@ -61,33 +65,35 @@ export function ComposePane({
   const [jsonPayload, setJsonPayload] = useState("{}");
   
   const [models, setModels] = useState<ModelOption[]>([]);
-  const [selectedModelId, setSelectedModelId] = useState<string>("gemini-2.5-flash-image");
+  const [selectedModelId, setSelectedModelId] = useState<string>("gemini-3.1-flash-image");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch available models from registry
+  // Fetch available models from registry. Deprecated models are kept in the
+  // registry (history/fallback) but hidden from the picker.
   useEffect(() => {
     apiGet<{ models: ModelOption[] }>("models")
       .then((res) => {
-        if (res.models && res.models.length > 0) {
-          setModels(res.models);
-          setSelectedModelId(res.models[0].id);
+        const live = (res.models ?? []).filter((m) => !m.deprecated);
+        if (live.length > 0) {
+          setModels(live);
+          setSelectedModelId(live[0].id);
         }
       })
       .catch(() => {
-        // Fallback default list
+        // Fallback default list (current pinned ids).
         setModels([
           {
-            id: "gemini-2.5-flash-image",
+            id: "gemini-3.1-flash-image",
             provider: "google",
-            displayName: "Gemini 2.5 Flash Image",
-            capabilities: { mask_inpainting: true, image_to_image: true },
+            display_name: "Gemini 3.1 Flash Image",
+            capabilities: { mask_inpainting: false, image_to_image: true },
           },
           {
-            id: "openai-dall-e-3",
+            id: "gpt-image-2",
             provider: "openai",
-            displayName: "DALL-E 3 Image",
-            capabilities: { mask_inpainting: false, image_to_image: false },
+            display_name: "OpenAI GPT Image 2",
+            capabilities: { mask_inpainting: true, image_to_image: true },
           },
         ]);
       });
@@ -195,7 +201,7 @@ export function ComposePane({
             >
               {models.map((m) => (
                 <option key={m.id} value={m.id}>
-                  {m.displayName} ({m.provider})
+                  {m.display_name} ({m.provider})
                 </option>
               ))}
             </select>

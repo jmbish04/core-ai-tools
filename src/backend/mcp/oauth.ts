@@ -106,6 +106,9 @@ export function buildOAuthHandler(base: ExportedHandler<Env>): OAuthProvider<Env
     tokenEndpoint: "/token",
     clientRegistrationEndpoint: "/register",
     scopesSupported: SCOPES,
+    // Access-token lifetime: 1 year (default is 1 hour). Single-owner MCP server,
+    // so a long-lived token avoids re-authorizing the Claude.ai connector daily.
+    accessTokenTTL: 60 * 60 * 24 * 365,
     // RFC 9728: the protected-resource `resource` MUST equal the MCP server URL
     // Claude connects to (`…/mcp`) — not the origin, or Claude rejects the
     // resource match. Pinned to the deployed host.

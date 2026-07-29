@@ -1,6 +1,10 @@
 {
   "name": "core-ai-tools",
-  "main": "dist/_worker.js/index.js",
+  // @astrojs/cloudflare v14: `main` names the SOURCE Worker entry. `astro build`
+  // compiles it (resolving the adapter's virtual config + SSR manifest) and emits
+  // the deploy config wrangler uses. The entry exports the default handler + the
+  // Durable Object classes (see src/_worker.ts).
+  "main": "./src/_worker.ts",
   "compatibility_date": "2026-05-25",
   "compatibility_flags": ["nodejs_compat"],
   "upload_source_maps": true,
@@ -152,6 +156,16 @@
     {
       "binding": "SESSIONS",
       "id": "aba8552a49c64335ba4832d34ce9459d",
+      "remote": true,
+    },
+    {
+      // Astro's session store. @astrojs/cloudflare injects a `SESSION` binding
+      // for Astro.session regardless of the session driver config; declare it
+      // with the existing `core-ai-tools-session` namespace id so `wrangler
+      // deploy` binds it instead of trying to provision a new one (which
+      // collided: "a namespace with this title already exists").
+      "binding": "SESSION",
+      "id": "2031b660dcc241e39404d4d98d09a965",
       "remote": true,
     },
   ],
