@@ -19,7 +19,6 @@ const canonicalURL = new URL(Astro.url.pathname, Astro.site).toString();
 const ogImageURL = ogImage
   ? new URL(ogImage, Astro.site).toString()
   : new URL("og-image.png", canonicalURL).toString();
-const faviconURL = new URL("favicon.svg", canonicalURL).toString();
 ---
 
 <!-- Basic -->
@@ -30,7 +29,9 @@ const faviconURL = new URL("favicon.svg", canonicalURL).toString();
 
 <!-- Canonical -->
 <link rel="canonical" href={canonicalURL} />
-<link rel="icon" href={faviconURL} type="image/svg+xml" />
+<!-- Root-relative so it resolves on every route (nested paths included). -->
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="/favicon.svg" />
 
 <!-- Title -->
 <title>{title}</title>
