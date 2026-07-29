@@ -27,6 +27,23 @@ describe("registry — pure capability logic", () => {
     expect(ids.some((i) => i.includes("imagen"))).toBe(false);
   });
 
+  it("exposes the current OpenAI image model and deprecates the old one", () => {
+    const two = requireModel("gpt-image-2");
+    expect(two.provider).toBe("openai");
+    expect(two.deprecated).toBeFalsy();
+    expect(two.capabilities.mask_inpainting).toBe(true);
+    expect(requireModel("gpt-image-1").deprecated).toBe(true);
+  });
+
+  it("every model has a display_name — the field the UI picker renders", () => {
+    // Guards the ComposePane bug where the picker read the wrong field and showed
+    // only "(provider)". Non-empty display_name for every registered model.
+    for (const m of listModels()) {
+      expect(typeof m.display_name).toBe("string");
+      expect(m.display_name.length).toBeGreaterThan(0);
+    }
+  });
+
   it("enforces mask capability — allows native OR emulated, rejects models with neither", () => {
     // gemini-3.6-flash is understanding-only: no mask channel and no emulation.
     expect(() => assertCapability("gemini-3.6-flash", { mask_inpainting: true })).toThrow(

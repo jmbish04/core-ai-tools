@@ -87,8 +87,8 @@ export function RevisionDetailPane({
   return (
     <div className="flex flex-col gap-4 rounded-xl bg-card p-5 ring-1 ring-border/40">
       {/* Title & Pin status */}
-      <div className="flex items-center justify-between border-b border-border/40 pb-3">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/40 pb-3">
+        <div className="min-w-0">
           <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
             SELECTED REVISION
           </span>
@@ -97,13 +97,13 @@ export function RevisionDetailPane({
           </h3>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {onToggleCompare && !isSeed && (
             <Button
               size="sm"
               variant="outline"
               onClick={onToggleCompare}
-              className="h-8 gap-1.5 ring-1 ring-border/40 text-xs font-mono"
+              className="h-8 gap-1.5 whitespace-nowrap ring-1 ring-border/40 text-xs font-mono"
             >
               <Layers className="h-3.5 w-3.5" /> Compare Diff
             </Button>
@@ -114,7 +114,7 @@ export function RevisionDetailPane({
             variant={revision.isPinned ? "default" : "outline"}
             onClick={handlePin}
             disabled={pinning}
-            className={`h-8 gap-1 text-xs font-mono ${
+            className={`h-8 gap-1 whitespace-nowrap text-xs font-mono ${
               revision.isPinned ? "bg-primary text-primary-foreground" : "ring-1 ring-border/40"
             }`}
           >
