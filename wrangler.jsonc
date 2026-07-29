@@ -36,23 +36,11 @@
     "remote": true,
   },
   "durable_objects": {
+    // Trimmed to what core-ai-tools exports (see src/_worker.ts): ChatBroker
+    // (assistant-ui chat), NotificationsAgent (realtime feed), SessionDO
+    // (per-session fanout + seq allocator). The template's showcase agents are
+    // retired in migration v2 below.
     "bindings": [
-      {
-        "name": "CODE_MODE_AGENT",
-        "class_name": "CodeModeAgent",
-      },
-      {
-        "name": "BROWSER_HITL_AGENT",
-        "class_name": "BrowserHitlAgent",
-      },
-      {
-        "name": "WORKFLOWS_AGENT",
-        "class_name": "WorkflowsAgent",
-      },
-      {
-        "name": "ARTIFACT_AGENT",
-        "class_name": "ArtifactAgent",
-      },
       {
         "name": "CHAT_BROKER",
         "class_name": "ChatBroker",
@@ -62,69 +50,66 @@
         "class_name": "NotificationsAgent",
       },
       {
-        "name": "ORCHESTRATOR_AGENT",
-        "class_name": "OrchestratorAgent",
-      },
-      {
-        "name": "RESEARCHER_AGENT",
-        "class_name": "ResearcherAgent",
-      },
-      {
-        "name": "CODER_AGENT",
-        "class_name": "CoderAgent",
-      },
-      {
-        "name": "MCP_AGENT",
-        "class_name": "McpAgent",
-      },
-      {
-        "name": "THINKING_AGENT",
-        "class_name": "ThinkingAgent",
-      },
-      {
-        "name": "SKILLS_AGENT",
-        "class_name": "SkillsAgent",
+        // Realtime fanout + seq allocator, one instance per session_uuid.
+        "name": "SESSION_DO",
+        "class_name": "SessionDO",
       },
     ],
   },
   "browser": {
     "binding": "MYBROWSER",
   },
+  // Cloudflare Images binding (Phase 3). `env.IMAGES.hosted.*` does token-free
+  // storage/management; `env.IMAGES.input().transform().output()` does transforms.
+  "images": {
+    "binding": "IMAGES",
+  },
   "worker_loaders": [
     { "binding": "WORKER_LOADERS" }
   ],
+  // Service binding to the core-guardian Worker for usage registration. A Worker
+  // fetching another Worker's *.workers.dev URL over the public internet hits
+  // Cloudflare error 1042 (loopback restriction) — the binding routes internally
+  // instead. See backend/ai/dispatch/guardian.ts.
+  "services": [
+    { "binding": "GUARDIAN", "service": "core-guardian" }
+  ],
+  // Cron maintenance (see src/_worker.ts `scheduled`): every 5 min, reap
+  // revisions stuck in queued/running past the timeout and drain the guardian
+  // usage outbox.
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+  // DO migration history. This MUST match what the deployed Worker has applied —
+  // v1 created the full class set (incl. SessionDO), v2 retired the 10 showcase
+  // agents, leaving ChatBroker + NotificationsAgent + SessionDO. Do NOT rewrite
+  // v1/v2 (immutable, already applied); add v3, v4, … additively.
   "migrations": [
-    // v1 captures the original deployed-class set so wrangler can apply
-    // an additive history. Do NOT rewrite this tag — it is immutable
-    // once a Worker has shipped under it.
     {
       "tag": "v1",
       "new_sqlite_classes": [
-        "OrchestratorAgent",
         "CodeModeAgent",
-        "GoogleDocsAgent",
         "BrowserHitlAgent",
         "WorkflowsAgent",
         "ArtifactAgent",
+        "ChatBroker",
+        "NotificationsAgent",
+        "OrchestratorAgent",
+        "ResearcherAgent",
+        "CoderAgent",
+        "McpAgent",
+        "ThinkingAgent",
+        "SkillsAgent",
+        "SessionDO",
       ],
     },
-    // v2 brings the live Worker in line with the lean template:
-    //   - retire OrchestratorAgent + GoogleDocsAgent (no longer exported)
-    //   - introduce ChatBroker (assistant-ui WebSocket broker)
-    //   - introduce NotificationsAgent (per-session realtime fanout)
     {
       "tag": "v2",
-      "deleted_classes": ["OrchestratorAgent", "GoogleDocsAgent"],
-      "new_sqlite_classes": ["ChatBroker", "NotificationsAgent"],
-    },
-    // v3 re-introduces the OrchestratorAgent (re-created additively after v2
-    // retired it) as a live multi-agent coordinator, adds its specialist
-    // sub-agents (ResearcherAgent, CoderAgent), and registers the three new
-    // showcase agents (McpAgent, ThinkingAgent, SkillsAgent). v1/v2 are left
-    // untouched — they are immutable history.
-    {
-      "tag": "v3",
-      "new_sqlite_classes": [
+      "deleted_classes": [
+        "CodeModeAgent",
+        "BrowserHitlAgent",
+        "WorkflowsAgent",
+        "ArtifactAgent",
         "OrchestratorAgent",
         "ResearcherAgent",
         "CoderAgent",
@@ -141,28 +126,13 @@
   // RECEIVING email needs NO wrangler binding. The Worker exports an
   // `email(message, env, ctx)` handler (see src/_worker.ts +
   // src/backend/email/inbound.ts); Cloudflare invokes it when a Routing Rule
-  // points an incoming address at this Worker. Set that up out-of-band:
+  // points an incoming address at this Worker. Configure it out-of-band via the
+  // dashboard (Email → Email Routing → "Send to a Worker") or the wrangler CLI.
   //
-  //   Dashboard → the zone → Email → Email Routing →
-  //     1. Enable Email Routing for the domain (adds the required MX + TXT/SPF).
-  //     2. Routing Rules → "Send to a Worker" → select this Worker
-  //        (core-ai-tools), or use a catch-all rule.
-  //   …or via CLI:
-  //     npx wrangler email routing rules create \
-  //       --match "to=demo@yourdomain.com" --action worker \
-  //       --value core-ai-tools
-  //
-  // FORWARDING a copy via `message.forward(INBOX_FORWARD_TO)` is optional. The
-  // destination must be VERIFIED first (Dashboard → Destination addresses, or
-  // `npx wrangler email routing addresses create you@gmail.com`). Leave
-  // INBOX_FORWARD_TO empty to disable forwarding.
-  //
-  // REPLYING/SENDING (not used by this showcase) WOULD need a binding:
-  //   "send_email": [{ "name": "EMAIL" }]
-  // plus `npx wrangler email sending enable yourdomain.com`. Add it only if you
-  // wire an outbound reply flow.
+  // FORWARDING a copy via `message.forward(INBOX_FORWARD_TO)` needs a VERIFIED
+  // destination. Leave INBOX_FORWARD_TO empty to disable forwarding.
   "vars": {
-    "AI_GATEWAY_ID": "default-gateway",
+    "AI_GATEWAY_ID": "core-ai-tools",
     "MODEL_CHAT": "@cf/openai/gpt-oss-120b",
     "MODEL_EXTRACT": "@cf/openai/gpt-oss-120b",
     "MODEL_DRAFT": "@cf/openai/gpt-oss-120b",
@@ -174,6 +144,12 @@
   },
   "kv_namespaces": [
     {
+      // OAuth 2.1 token/client store for the MCP server (workers-oauth-provider).
+      "binding": "OAUTH_KV",
+      "id": "859ea6b96deb4140831a1d09a70ffcd4",
+      "remote": true,
+    },
+    {
       "binding": "SESSIONS",
       "id": "aba8552a49c64335ba4832d34ce9459d",
       "remote": true,
@@ -183,7 +159,7 @@
     {
       "binding": "DB",
       "database_name": "core-ai-tools",
-      "database_id": "d555f8ce-77c9-4c82-be80-de95b8d9c003",
+      "database_id": "98b592ba-c5a3-47f4-950d-77a108b8d613",
       "migrations_dir": "drizzle",
     },
   ],
@@ -228,6 +204,31 @@
       "store_id": "8c42fa70938644e0a8a109744467375f",
       "secret_name": "GOOGLE_CREDS_SA_CLIENT_EMAIL",
     },
+    {
+      // Cloudflare Images account hash — the public value in delivery URLs
+      // (imagedelivery.net/<HASH>/<id>/<variant>). Read via
+      // utils/secrets.ts#getImagesAccountHash.
+      "binding": "CLOUDFLARE_IMAGES_ACCOUNT_HASH",
+      "store_id": "8c42fa70938644e0a8a109744467375f",
+      "secret_name": "CLOUDFLARE_IMAGES_ACCOUNT_HASH",
+    },
+    {
+      // Purpose-scoped Images token for the REST calls (direct upload, variants,
+      // delete). Falls back to CLOUDFLARE_WRANGLER_API_TOKEN if it lacks scope.
+      "binding": "CLOUDFLARE_IMAGES_STREAM_TOKEN",
+      "store_id": "8c42fa70938644e0a8a109744467375f",
+      "secret_name": "CLOUDFLARE_IMAGES_STREAM_TOKEN",
+    },
+    {
+      "binding": "GEMINI_API_KEY",
+      "store_id": "8c42fa70938644e0a8a109744467375f",
+      "secret_name": "GEMINI_API_KEY",
+    },
+    {
+      "binding": "OPENAI_API_KEY",
+      "store_id": "8c42fa70938644e0a8a109744467375f",
+      "secret_name": "OPENAI_API_KEY",
+    },
   ],
   //  wrangler vectorize create core-ai-tools-career-memory --preset @cf/baai/bge-large-en-v1.5
   "vectorize": [
@@ -246,6 +247,13 @@
     {
       "bucket_name": "core-ai-tools-files",
       "binding": "R2_FILES_BUCKET",
+      "remote": true,
+    },
+    {
+      // Product video (Phase 8). Dedicated bucket — kept off R2_FILES_BUCKET so
+      // lifecycle/metrics stay separate.
+      "bucket_name": "core-ai-tools-video",
+      "binding": "R2_VIDEO_BUCKET",
       "remote": true,
     },
   ],
