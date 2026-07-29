@@ -30,7 +30,7 @@
   "ai": {
     "binding": "AI",
     // Workers AI has no local emulation. `remote: true` lets `wrangler dev`
-    // (which runs Durable Objects locally — `--remote` is unsupported for DOs)
+    // (which runs Durable Objects locally â `--remote` is unsupported for DOs)
     // proxy AI inference to the real Workers AI service, so the chat agents
     // stream genuine model output during local development.
     "remote": true,
@@ -95,7 +95,7 @@
   ],
   "migrations": [
     // v1 captures the original deployed-class set so wrangler can apply
-    // an additive history. Do NOT rewrite this tag — it is immutable
+    // an additive history. Do NOT rewrite this tag â it is immutable
     // once a Worker has shipped under it.
     {
       "tag": "v1",
@@ -121,7 +121,7 @@
     // retired it) as a live multi-agent coordinator, adds its specialist
     // sub-agents (ResearcherAgent, CoderAgent), and registers the three new
     // showcase agents (McpAgent, ThinkingAgent, SkillsAgent). v1/v2 are left
-    // untouched — they are immutable history.
+    // untouched â they are immutable history.
     {
       "tag": "v3",
       "new_sqlite_classes": [
@@ -135,7 +135,7 @@
     },
   ],
   // ---------------------------------------------------------------------------
-  // Cloudflare Email Routing (inbound) — the `/inbox` showcase
+  // Cloudflare Email Routing (inbound) â the `/inbox` showcase
   // ---------------------------------------------------------------------------
   //
   // RECEIVING email needs NO wrangler binding. The Worker exports an
@@ -143,17 +143,17 @@
   // src/backend/email/inbound.ts); Cloudflare invokes it when a Routing Rule
   // points an incoming address at this Worker. Set that up out-of-band:
   //
-  //   Dashboard → the zone → Email → Email Routing →
+  //   Dashboard â the zone â Email â Email Routing â
   //     1. Enable Email Routing for the domain (adds the required MX + TXT/SPF).
-  //     2. Routing Rules → "Send to a Worker" → select this Worker
+  //     2. Routing Rules â "Send to a Worker" â select this Worker
   //        (core-ai-tools), or use a catch-all rule.
-  //   …or via CLI:
+  //   â¦or via CLI:
   //     npx wrangler email routing rules create \
   //       --match "to=demo@yourdomain.com" --action worker \
   //       --value core-ai-tools
   //
   // FORWARDING a copy via `message.forward(INBOX_FORWARD_TO)` is optional. The
-  // destination must be VERIFIED first (Dashboard → Destination addresses, or
+  // destination must be VERIFIED first (Dashboard â Destination addresses, or
   // `npx wrangler email routing addresses create you@gmail.com`). Leave
   // INBOX_FORWARD_TO empty to disable forwarding.
   //
@@ -188,6 +188,7 @@
     },
   ],
   "secrets_store_secrets": [
+		{ "binding": "OPENAI_API_KEY", "store_id": "8c42fa70938644e0a8a109744467375f", "secret_name": "OPENAI_API_KEY" },
     {
       "binding": "GITHUB_TOKEN",
       "store_id": "8c42fa70938644e0a8a109744467375f",
