@@ -77,6 +77,8 @@ export interface AssistantModalProps {
   placeholder?: string;
   /** Starter prompt chips on the empty screen. */
   welcomeSuggestions?: string[];
+  /** "center" = centered modal (default); "bottom" = sheet that slides up. */
+  placement?: "center" | "bottom";
 }
 
 /**
@@ -120,6 +122,7 @@ export function AssistantModal({
   welcomeSubtitle,
   placeholder,
   welcomeSuggestions,
+  placement = "center",
 }: AssistantModalProps = {}) {
   const [open, setOpen] = React.useState(false);
   const [activated, setActivated] = React.useState(false);
@@ -143,7 +146,12 @@ export function AssistantModal({
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
-          className="flex h-[min(80vh,640px)] max-w-xl flex-col gap-0 overflow-hidden p-0"
+          placement={placement}
+          className={
+            placement === "bottom"
+              ? "flex h-[min(80vh,640px)] w-full max-w-2xl flex-col gap-0 overflow-hidden p-0"
+              : "flex h-[min(80vh,640px)] max-w-xl flex-col gap-0 overflow-hidden p-0"
+          }
           showClose
         >
           <DialogHeader className="border-b border-border/30 px-5 py-4">
