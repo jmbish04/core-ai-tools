@@ -36,10 +36,6 @@ type DOBindingDescriptor = {
  * timeouts are caught and recorded — they do not abort the run.
  */
 const AGENT_BINDINGS: DOBindingDescriptor[] = [
-  { binding: "CODE_MODE_AGENT" as keyof Env, name: "code_mode_agent_ping" },
-  { binding: "BROWSER_HITL_AGENT" as keyof Env, name: "browser_hitl_agent_ping" },
-  { binding: "WORKFLOWS_AGENT" as keyof Env, name: "workflows_agent_ping" },
-  { binding: "ARTIFACT_AGENT" as keyof Env, name: "artifact_agent_ping" },
   { binding: "CHAT_BROKER" as keyof Env, name: "chat_broker_ping" },
   { binding: "NOTIFICATIONS_AGENT" as keyof Env, name: "notifications_agent_ping" },
 ];

@@ -49,7 +49,9 @@ authRouter.openapi(
       return c.json({ error: "Server misconfigured: WORKER_API_KEY not set" }, 500);
     }
 
-    if (!constantTimeEqual(apiKey, expected)) {
+    // Trim both sides: a Secrets Store value can carry a trailing newline that
+    // would fail an exact compare against the pasted key.
+    if (!constantTimeEqual(apiKey.trim(), expected.trim())) {
       return c.json({ error: "Invalid API key" }, 401);
     }
 

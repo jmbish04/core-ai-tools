@@ -40,6 +40,14 @@ import { tasksRouter } from "./routes/tasks";
 import { teamNotesRouter } from "./routes/team-notes";
 import { threadsRouter } from "./routes/threads";
 import { webhooksRouter } from "./routes/webhooks";
+// core-ai-tools image/video editing surfaces
+import { masksRouter } from "./routes/masks";
+import { sessionsRouter } from "./routes/sessions";
+import { revisionsRouter } from "./routes/revisions";
+import { libraryRouter } from "./routes/library";
+import { modelsRouter } from "./routes/models";
+import { promptsRouter } from "./routes/prompts";
+import { videoRouter } from "./routes/video";
 
 // ---------------------------------------------------------------------------
 // App type — shared by all routers
@@ -108,6 +116,15 @@ app.get("/api/swagger", swaggerUI({ url: "/api/openapi.json" }));
 // box. Tighten this to `/api/*` once you wire real per-user auth.
 app.use("/api/admin/*", authMiddleware);
 
+// core-ai-tools product data surfaces — gated behind the session cookie OR a
+// `Bearer <WORKER_API_KEY>` (see authMiddleware). These carry real prompts,
+// sessions, and library images, so they are not left public. Registered before
+// the routers are mounted (Hono applies middleware in registration order).
+for (const p of ["sessions", "revisions", "library", "models", "prompts", "video"]) {
+  app.use(`/api/${p}`, authMiddleware);
+  app.use(`/api/${p}/*`, authMiddleware);
+}
+
 // ---------------------------------------------------------------------------
 // Domain routers
 // ---------------------------------------------------------------------------
@@ -137,6 +154,15 @@ app.route("/api/inbox", inboxRouter);
 app.route("/api/seed", seedRouter);
 
 app.route("/api/__client-error", clientErrorRouter);
+
+// core-ai-tools surfaces — routers declare absolute /api/* paths, so mount at root.
+app.route("/", masksRouter);
+app.route("/", sessionsRouter);
+app.route("/", revisionsRouter);
+app.route("/", libraryRouter);
+app.route("/", modelsRouter);
+app.route("/", promptsRouter);
+app.route("/", videoRouter);
 
 // ---------------------------------------------------------------------------
 // OpenAPI documentation endpoints

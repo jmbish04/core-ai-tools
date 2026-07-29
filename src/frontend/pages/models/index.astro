@@ -1,0 +1,10 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import { ModelsView } from "@/components/models/ModelsView";
+---
+
+<BaseLayout title="Model Registry — core-ai-tools" description="Declarative model catalog and task default mappings.">
+  <main class="container mx-auto max-w-7xl px-4 py-8">
+    <ModelsView client:load />
+  </main>
+</BaseLayout>

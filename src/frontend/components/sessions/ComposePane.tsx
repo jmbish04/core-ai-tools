@@ -1,0 +1,259 @@
+/**
+ * @fileoverview Compose Pane component for entering image edits.
+ * Features:
+ *   - Natural language prompt text entry or JSON payload mode toggle.
+ *   - Live model selector dropdown (fetches models from `/api/models`).
+ *   - Mask mode selection (`none`, `inpaint`, `preserve`) + Mask Brush tool modal trigger.
+ *   - Submit edit action (submits to `POST /api/revisions`).
+ */
+
+import { useCallback, useEffect, useState } from "react";
+import {
+  Code,
+  Cpu,
+  Loader2,
+  Paintbrush,
+  Sparkles,
+  Type,
+  X,
+} from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { apiGet, apiSend } from "@/lib/api";
+
+interface ModelOption {
+  id: string;
+  provider: string;
+  displayName: string;
+  capabilities: {
+    mask_inpainting: boolean;
+    image_to_image: boolean;
+  };
+}
+
+interface AttachedMask {
+  id: string;
+  label?: string | null;
+  mode: "inpaint" | "preserve";
+}
+
+interface ComposePaneProps {
+  sessionUuid: string;
+  parentRevisionId: string;
+  onEditSubmitted: () => void;
+  onOpenMaskBrush: () => void;
+  attachedMask: AttachedMask | null;
+  onClearMask: () => void;
+}
+
+export function ComposePane({
+  sessionUuid,
+  parentRevisionId,
+  onEditSubmitted,
+  onOpenMaskBrush,
+  attachedMask,
+  onClearMask,
+}: ComposePaneProps) {
+  const [promptText, setPromptText] = useState("");
+  const [isJsonMode, setIsJsonMode] = useState(false);
+  const [jsonPayload, setJsonPayload] = useState("{}");
+  
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState<string>("gemini-2.5-flash-image");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch available models from registry
+  useEffect(() => {
+    apiGet<{ models: ModelOption[] }>("models")
+      .then((res) => {
+        if (res.models && res.models.length > 0) {
+          setModels(res.models);
+          setSelectedModelId(res.models[0].id);
+        }
+      })
+      .catch(() => {
+        // Fallback default list
+        setModels([
+          {
+            id: "gemini-2.5-flash-image",
+            provider: "google",
+            displayName: "Gemini 2.5 Flash Image",
+            capabilities: { mask_inpainting: true, image_to_image: true },
+          },
+          {
+            id: "openai-dall-e-3",
+            provider: "openai",
+            displayName: "DALL-E 3 Image",
+            capabilities: { mask_inpainting: false, image_to_image: false },
+          },
+        ]);
+      });
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!promptText.trim() && !isJsonMode) return;
+
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      let editPayloadData: unknown = null;
+      if (isJsonMode) {
+        try {
+          editPayloadData = JSON.parse(jsonPayload);
+        } catch {
+          throw new Error("Invalid JSON payload format");
+        }
+      }
+
+      await apiSend("POST", "revisions", {
+        sessionUuid,
+        parentRevisionId,
+        promptText: promptText.trim(),
+        editPayload: editPayloadData,
+        requestedModel: selectedModelId,
+        maskId: attachedMask?.id || null,
+        maskMode: attachedMask?.mode || "none",
+        createdVia: "ui",
+      });
+
+      setPromptText("");
+      onEditSubmitted();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to submit edit");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const selectedModel = models.find((m) => m.id === selectedModelId);
+
+  return (
+    <div className="flex flex-col gap-4 rounded-xl bg-card p-5 ring-1 ring-border/40">
+      <div className="flex items-center justify-between border-b border-border/40 pb-3">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-primary" />
+          <h3 className="font-semibold text-foreground text-sm">Submit New Edit</h3>
+        </div>
+
+        <button
+          onClick={() => setIsJsonMode(!isJsonMode)}
+          className="flex items-center gap-1 font-mono text-xs text-muted-foreground hover:text-foreground"
+        >
+          <Code className="h-3.5 w-3.5" /> {isJsonMode ? "Switch to Text" : "JSON Payload Mode"}
+        </button>
+      </div>
+
+      {error && (
+        <div className="rounded-lg bg-destructive/15 p-3 text-xs text-destructive">
+          {error}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Prompt Input or JSON Mode */}
+        {isJsonMode ? (
+          <div className="space-y-1">
+            <label className="font-mono text-xs text-muted-foreground">JSON Edit Payload</label>
+            <Textarea
+              value={jsonPayload}
+              onChange={(e) => setJsonPayload(e.target.value)}
+              rows={4}
+              className="font-mono text-xs bg-background ring-1 ring-border/40"
+            />
+          </div>
+        ) : (
+          <div className="space-y-1">
+            <label className="font-mono text-xs text-muted-foreground">
+              Natural Language Instruction
+            </label>
+            <Textarea
+              placeholder="e.g. Replace the dark granite countertop with white marble with subtle grey veining..."
+              value={promptText}
+              onChange={(e) => setPromptText(e.target.value)}
+              rows={3}
+              className="bg-background ring-1 ring-border/40 text-sm"
+            />
+          </div>
+        )}
+
+        {/* Model Selector & Mask Trigger */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          {/* Model Picker */}
+          <div className="space-y-1">
+            <label className="font-mono text-muted-foreground flex items-center gap-1">
+              <Cpu className="h-3.5 w-3.5" /> Target Model
+            </label>
+            <select
+              value={selectedModelId}
+              onChange={(e) => setSelectedModelId(e.target.value)}
+              className="w-full rounded-lg bg-background p-2 font-mono text-xs text-foreground ring-1 ring-border/40 focus:outline-none"
+            >
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.displayName} ({m.provider})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Mask Attachment */}
+          <div className="space-y-1">
+            <label className="font-mono text-muted-foreground flex items-center gap-1">
+              <Paintbrush className="h-3.5 w-3.5" /> Mask Region
+            </label>
+
+            {attachedMask ? (
+              <div className="flex items-center justify-between rounded-lg bg-emerald-500/15 px-3 py-2 text-xs text-emerald-300 ring-1 ring-emerald-500/30">
+                <span className="font-mono truncate">
+                  {attachedMask.label || "Mask attached"} ({attachedMask.mode})
+                </span>
+                <button
+                  type="button"
+                  onClick={onClearMask}
+                  className="text-emerald-300 hover:text-white"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onOpenMaskBrush}
+                className="w-full gap-2 justify-start ring-1 ring-border/40 text-xs font-mono text-muted-foreground hover:text-foreground"
+              >
+                <Paintbrush className="h-3.5 w-3.5 text-primary" /> Open Mask Brush
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Capability check warnings */}
+        {attachedMask && selectedModel && !selectedModel.capabilities.mask_inpainting && (
+          <div className="text-[11px] font-mono text-amber-400">
+            &bull; Warning: Selected model does not natively support mask inpainting; edit will run via emulation composite.
+          </div>
+        )}
+
+        {/* Submit button */}
+        <Button
+          type="submit"
+          disabled={submitting || (!promptText.trim() && !isJsonMode)}
+          className="w-full gap-2 bg-primary text-primary-foreground font-medium py-5"
+        >
+          {submitting ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Sparkles className="h-4 w-4" />
+          )}
+          Submit Revision Edit
+        </Button>
+      </form>
+    </div>
+  );
+}

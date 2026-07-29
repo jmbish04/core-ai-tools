@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<style>
+body{margin:0;background:oklch(0.145 0 0);}
+a{color:oklch(0.985 0 0);text-decoration:none}
+a:hover{color:oklch(0.985 0 0);text-decoration:underline;text-underline-offset:4px}
+[data-lucide]{display:inline-block;vertical-align:middle}
+</style>
+</helmet>
+
+<div style="--background:oklch(0.145 0 0);--foreground:oklch(0.985 0 0);--card:oklch(0.205 0 0);--surface:oklch(0.2 0 0);--primary:oklch(0.922 0 0);--primary-foreground:oklch(0.205 0 0);--muted:oklch(0.269 0 0);--muted-foreground:oklch(0.708 0 0);--border:oklch(1 0 0 / 10%);--chrome-border:oklch(1 0 0 / 4%);--input:oklch(1 0 0 / 15%);--destructive:oklch(0.704 0.191 22.216);--success:oklch(0.696 0.17 162.48);--warning:oklch(0.769 0.188 70.08);--info:oklch(0.623 0.214 259.815);--mono:'Geist Mono',ui-monospace,Menlo,monospace;background:var(--background);color:var(--foreground);font-family:'Inter','Inter Variable',system-ui,sans-serif;-webkit-font-smoothing:antialiased;padding:48px">
+
+<section style="display:flex;flex-direction:column;gap:28px">
+
+  <div style="width:1400px">
+    <p style="margin:0 0 10px;font-family:var(--mono);font-size:10px;letter-spacing:0.24em;text-transform:uppercase;color:var(--muted-foreground)">Turn 1 — /sessions and /models</p>
+    <h1 style="margin:0;font-size:28px;font-weight:600;letter-spacing:-0.02em">Two tables, one pattern</h1>
+    <p style="margin:12px 0 0;max-width:96ch;font-size:14px;line-height:1.65;color:var(--muted-foreground);text-wrap:pretty">Both pages use the same shell: 56px page bar with count and primary action, 48px filter row of chips, then a table whose header row is the sort control. Numbers are monospace and right-aligned so columns scan vertically. The only place the pattern breaks is the models page notifications — see <a href="#1b">1b</a>.</p>
+  </div>
+
+  <div id="1a" style="width:1400px">
+    <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:14px">
+      <span style="display:inline-flex;align-items:center;height:24px;padding:0 9px;border-radius:6px;background:var(--primary);color:var(--primary-foreground);font-family:var(--mono);font-size:11px;font-weight:500">1a</span>
+      <h2 style="margin:0;font-size:18px;font-weight:600;letter-spacing:-0.015em">/sessions</h2>
+      <p style="margin:0;font-size:13px;color:var(--muted-foreground)">Surface of origin is a column, not a filter afterthought — it is how you find the thing Claude made at 2am.</p>
+    </div>
+
+    <div style="border-radius:14px;border:1px solid var(--border);background:var(--surface);overflow:hidden">
+
+      <div style="height:56px;display:flex;align-items:center;gap:14px;padding:0 18px;border-bottom:1px solid var(--chrome-border)">
+        <span style="font-size:14px;font-weight:600;letter-spacing:-0.01em">Sessions</span>
+        <span style="font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">128 total · 4 need attention</span>
+        <div style="flex:1"></div>
+        <div style="width:260px;height:32px;border-radius:10px;background:var(--card);box-shadow:0 0 0 1px var(--input);display:flex;align-items:center;gap:8px;padding:0 11px">
+          <i data-lucide="search" style="width:14px;height:14px;color:var(--muted-foreground)"></i>
+          <span style="font-size:13px;color:var(--muted-foreground)">Search titles and prompts</span>
+        </div>
+        <button style="height:32px;padding:0 12px;border-radius:10px;border:none;background:var(--primary);color:var(--primary-foreground);font-size:13px;font-weight:500;font-family:inherit;display:flex;align-items:center;gap:6px;cursor:pointer" style-hover="opacity:0.9"><i data-lucide="plus" style="width:14px;height:14px"></i>New session</button>
+      </div>
+
+      <div style="height:48px;display:flex;align-items:center;gap:8px;padding:0 18px;border-bottom:1px solid var(--chrome-border)">
+        <span style="display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:9px;background:var(--muted);font-size:12px;font-weight:500">Active<i data-lucide="x" style="width:12px;height:12px;color:var(--muted-foreground)"></i></span>
+        <span style="display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:9px;box-shadow:inset 0 0 0 1px var(--input);color:var(--muted-foreground);font-size:12px">Status<i data-lucide="chevron-down" style="width:12px;height:12px"></i></span>
+        <span style="display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:9px;box-shadow:inset 0 0 0 1px var(--input);color:var(--muted-foreground);font-size:12px">Surface<i data-lucide="chevron-down" style="width:12px;height:12px"></i></span>
+        <span style="display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:9px;box-shadow:inset 0 0 0 1px var(--input);color:var(--muted-foreground);font-size:12px">Folder<i data-lucide="chevron-down" style="width:12px;height:12px"></i></span>
+        <div style="flex:1"></div>
+        <span style="font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">14 shown</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:64px minmax(0,1fr) 110px 150px 170px 120px 40px;align-items:center;height:36px;padding:0 18px;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted-foreground)">
+        <span></span>
+        <span style="display:flex;align-items:center;gap:5px;cursor:pointer">Session</span>
+        <span style="text-align:right">Revisions</span>
+        <span style="text-align:right">Status</span>
+        <span style="display:flex;align-items:center;justify-content:flex-end;gap:5px;color:var(--foreground);cursor:pointer">Last activity<i data-lucide="arrow-down" style="width:11px;height:11px"></i></span>
+        <span style="text-align:right">Started from</span>
+        <span></span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:64px minmax(0,1fr) 110px 150px 170px 120px 40px;align-items:center;height:68px;padding:0 18px;border-bottom:1px solid var(--chrome-border);background:oklch(0.623 0.214 259.815 / 7%)" style-hover="background:oklch(0.623 0.214 259.815 / 11%)">
+        <div style="width:52px;height:40px;border-radius:6px;background:var(--muted);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:9px;color:var(--muted-foreground)">4:3</div>
+        <div style="min-width:0;padding-right:16px">
+          <div style="display:flex;align-items:center;gap:8px"><span style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Kitchen — walnut island, three finishes</span><span style="display:inline-flex;align-items:center;height:17px;padding:0 6px;border-radius:4px;background:oklch(0.623 0.214 259.815 / 22%);color:var(--info);font-family:var(--mono);font-size:9px;letter-spacing:0.08em;text-transform:uppercase;flex:none">new</span></div>
+          <div style="margin-top:3px;font-family:var(--mono);font-size:10px;color:var(--muted-foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Bernal house / Kitchen · kitchen-wide.jpg</div>
+        </div>
+        <div style="text-align:right"><span style="font-family:var(--mono);font-size:13px">17</span><span style="font-family:var(--mono);font-size:10px;color:var(--muted-foreground)"> / 4 br</span></div>
+        <div style="display:flex;justify-content:flex-end"><span style="display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:6px;background:oklch(0.769 0.188 70.08 / 16%);color:var(--warning);font-size:11px;font-weight:500">Awaiting approval</span></div>
+        <div style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">2 min ago</div>
+        <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px"><i data-lucide="terminal" style="width:13px;height:13px;color:var(--info)"></i><span style="font-family:var(--mono);font-size:11px;color:var(--info)">Claude</span></div>
+        <div style="display:flex;justify-content:flex-end"><i data-lucide="ellipsis" style="width:15px;height:15px;color:var(--muted-foreground)"></i></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:64px minmax(0,1fr) 110px 150px 170px 120px 40px;align-items:center;height:68px;padding:0 18px;border-bottom:1px solid var(--chrome-border)" style-hover="background:var(--card)">
+        <div style="width:52px;height:40px;border-radius:6px;background:var(--muted);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:9px;color:var(--muted-foreground)">4:3</div>
+        <div style="min-width:0;padding-right:16px">
+          <div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Living room — remove sectional, stage minimal</div>
+          <div style="margin-top:3px;font-family:var(--mono);font-size:10px;color:var(--muted-foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Bernal house / Living room · living-wide.jpg</div>
+        </div>
+        <div style="text-align:right"><span style="font-family:var(--mono);font-size:13px">9</span><span style="font-family:var(--mono);font-size:10px;color:var(--muted-foreground)"> / 2 br</span></div>
+        <div style="display:flex;justify-content:flex-end"><span style="display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:6px;background:oklch(0.696 0.17 162.48 / 14%);color:var(--success);font-size:11px;font-weight:500">Active</span></div>
+        <div style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">41 min ago</div>
+        <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px"><i data-lucide="monitor" style="width:13px;height:13px;color:var(--muted-foreground)"></i><span style="font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">Web</span></div>
+        <div style="display:flex;justify-content:flex-end"><i data-lucide="ellipsis" style="width:15px;height:15px;color:var(--muted-foreground)"></i></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:64px minmax(0,1fr) 110px 150px 170px 120px 40px;align-items:center;height:68px;padding:0 18px;border-bottom:1px solid var(--chrome-border)" style-hover="background:var(--card)">
+        <div style="width:52px;height:40px;border-radius:6px;background:var(--muted);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:9px;color:var(--muted-foreground)">3:2</div>
+        <div style="min-width:0;padding-right:16px">
+          <div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Bath — tile study, batch of 12</div>
+          <div style="margin-top:3px;font-family:var(--mono);font-size:10px;color:var(--muted-foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Bernal house / Bath · bath-vanity.jpg</div>
+        </div>
+        <div style="text-align:right"><span style="font-family:var(--mono);font-size:13px">31</span><span style="font-family:var(--mono);font-size:10px;color:var(--muted-foreground)"> / 7 br</span></div>
+        <div style="display:flex;justify-content:flex-end"><span style="display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:6px;background:oklch(0.704 0.191 22.216 / 16%);color:var(--destructive);font-size:11px;font-weight:500">3 failed</span></div>
+        <div style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">3 hours ago</div>
+        <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px"><i data-lucide="code" style="width:13px;height:13px;color:var(--muted-foreground)"></i><span style="font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">API</span></div>
+        <div style="display:flex;justify-content:flex-end"><i data-lucide="ellipsis" style="width:15px;height:15px;color:var(--muted-foreground)"></i></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:64px minmax(0,1fr) 110px 150px 170px 120px 40px;align-items:center;height:68px;padding:0 18px;border-bottom:1px solid var(--chrome-border)" style-hover="background:var(--card)">
+        <div style="width:52px;height:40px;border-radius:6px;background:var(--muted);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:9px;color:var(--muted-foreground)">16:9</div>
+        <div style="min-width:0;padding-right:16px">
+          <div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Exterior — siding colour walkthrough</div>
+          <div style="margin-top:3px;font-family:var(--mono);font-size:10px;color:var(--muted-foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Bernal house · facade-front.jpg · 1 video</div>
+        </div>
+        <div style="text-align:right"><span style="font-family:var(--mono);font-size:13px">6</span><span style="font-family:var(--mono);font-size:10px;color:var(--muted-foreground)"> / 1 br</span></div>
+        <div style="display:flex;justify-content:flex-end"><span style="display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:6px;background:var(--muted);color:var(--muted-foreground);font-size:11px;font-weight:500">Rendering</span></div>
+        <div style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">yesterday</div>
+        <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px"><i data-lucide="monitor" style="width:13px;height:13px;color:var(--muted-foreground)"></i><span style="font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">Web</span></div>
+        <div style="display:flex;justify-content:flex-end"><i data-lucide="ellipsis" style="width:15px;height:15px;color:var(--muted-foreground)"></i></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:64px minmax(0,1fr) 110px 150px 170px 120px 40px;align-items:center;height:68px;padding:0 18px;border-bottom:1px solid var(--chrome-border);opacity:0.55" style-hover="background:var(--card);opacity:0.8">
+        <div style="width:52px;height:40px;border-radius:6px;background:var(--muted);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:9px;color:var(--muted-foreground)">4:3</div>
+        <div style="min-width:0;padding-right:16px">
+          <div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Guest room — wallpaper trials</div>
+          <div style="margin-top:3px;font-family:var(--mono);font-size:10px;color:var(--muted-foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Archive · guest-ne.jpg</div>
+        </div>
+        <div style="text-align:right"><span style="font-family:var(--mono);font-size:13px">22</span><span style="font-family:var(--mono);font-size:10px;color:var(--muted-foreground)"> / 5 br</span></div>
+        <div style="display:flex;justify-content:flex-end"><span style="display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:6px;box-shadow:inset 0 0 0 1px var(--input);color:var(--muted-foreground);font-size:11px">Archived</span></div>
+        <div style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">14 Jun</div>
+        <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px"><i data-lucide="terminal" style="width:13px;height:13px;color:var(--muted-foreground)"></i><span style="font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">Claude</span></div>
+        <div style="display:flex;justify-content:flex-end"><i data-lucide="ellipsis" style="width:15px;height:15px;color:var(--muted-foreground)"></i></div>
+      </div>
+
+    </div>
+  </div>
+
+  <div id="1b" style="width:1400px">
+    <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:14px">
+      <span style="display:inline-flex;align-items:center;height:24px;padding:0 9px;border-radius:6px;background:var(--primary);color:var(--primary-foreground);font-family:var(--mono);font-size:11px;font-weight:500">1b</span>
+      <h2 style="margin:0;font-size:18px;font-weight:600;letter-spacing:-0.015em">/models — deprecation state</h2>
+      <p style="margin:0;font-size:13px;color:var(--muted-foreground)">Urgent notification: a model in production has a shutdown date. It names what breaks and offers one action.</p>
+    </div>
+
+    <div style="border-radius:14px;border:1px solid var(--border);background:var(--surface);overflow:hidden">
+
+      <div style="height:56px;display:flex;align-items:center;gap:14px;padding:0 18px;border-bottom:1px solid var(--chrome-border)">
+        <span style="font-size:14px;font-weight:600;letter-spacing:-0.01em">Models</span>
+        <span style="font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">9 available · 8 tasks assigned</span>
+        <div style="flex:1"></div>
+        <button style="height:32px;padding:0 12px;border-radius:10px;border:1px solid var(--input);background:transparent;color:var(--foreground);font-size:13px;font-family:inherit;display:flex;align-items:center;gap:6px;cursor:pointer" style-hover="background:var(--muted)"><i data-lucide="refresh-cw" style="width:14px;height:14px"></i>Refresh catalog</button>
+      </div>
+
+      <div style="padding:16px 18px 0;display:flex;flex-direction:column;gap:10px">
+
+        <div style="display:flex;border-radius:12px;overflow:hidden;box-shadow:0 0 0 1px oklch(0.704 0.191 22.216 / 45%)">
+          <div style="width:4px;flex:none;background:var(--destructive)"></div>
+          <div style="flex:1;min-width:0;display:flex;align-items:flex-start;gap:12px;padding:15px 16px;background:oklch(0.704 0.191 22.216 / 10%)">
+            <i data-lucide="triangle-alert" style="width:17px;height:17px;color:var(--destructive);margin-top:1px;flex:none"></i>
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;gap:9px">
+                <span style="font-size:14px;font-weight:600;letter-spacing:-0.01em">gemini-2.5-flash-image shuts down 12 Aug 2026</span>
+                <span style="display:inline-flex;align-items:center;height:19px;padding:0 7px;border-radius:5px;background:var(--destructive);color:oklch(0.145 0 0);font-family:var(--mono);font-size:9px;font-weight:500;letter-spacing:0.1em;text-transform:uppercase">16 days</span>
+              </div>
+              <p style="margin:6px 0 0;font-size:13px;line-height:1.6;color:var(--foreground);opacity:0.86;text-wrap:pretty">Two tasks depend on it and will start failing on that date: <span style="font-family:var(--mono);font-size:12px">segmentation</span> and <span style="font-family:var(--mono);font-size:12px">batch editing</span>. 41 sessions used it in the last 7 days.</p>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:12px">
+                <button style="height:30px;padding:0 12px;border-radius:9px;border:none;background:var(--destructive);color:oklch(0.145 0 0);font-size:12px;font-weight:600;font-family:inherit;cursor:pointer" style-hover="opacity:0.9">Reassign 2 tasks</button>
+                <button style="height:30px;padding:0 12px;border-radius:9px;border:1px solid var(--input);background:transparent;color:var(--foreground);font-size:12px;font-family:inherit;cursor:pointer" style-hover="background:var(--muted)">See affected sessions</button>
+                <span style="font-family:var(--mono);font-size:11px;color:var(--muted-foreground);margin-left:4px">Suggested replacement: gemini-3.1-flash-image</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:12px;background:var(--card);box-shadow:inset 0 0 0 1px var(--border)">
+          <i data-lucide="sparkles" style="width:16px;height:16px;color:var(--muted-foreground);flex:none"></i>
+          <div style="flex:1;min-width:0">
+            <span style="font-size:13px">
+              <span style="font-family:var(--mono);font-size:12px">gemini-3-pro-image</span> is available and not assigned to any task.
+            </span>
+            <span style="font-size:13px;color:var(--muted-foreground)"> Adds 4K output and 3D object detection.</span>
+          </div>
+          <button style="height:28px;padding:0 11px;border-radius:8px;border:1px solid var(--input);background:transparent;color:var(--foreground);font-size:12px;font-family:inherit;cursor:pointer;flex:none" style-hover="background:var(--muted)">Review capabilities</button>
+          <i data-lucide="x" style="width:14px;height:14px;color:var(--muted-foreground);flex:none"></i>
+        </div>
+      </div>
+
+      <div style="padding:20px 18px 8px">
+        <p style="margin:0 0 2px;font-family:var(--mono);font-size:10px;letter-spacing:0.24em;text-transform:uppercase;color:var(--muted-foreground)">Task assignment</p>
+        <p style="margin:0;font-size:13px;color:var(--muted-foreground)">The default model for each task. Sessions can override per revision.</p>
+      </div>
+
+      <div style="padding:0 18px 4px">
+        <div style="display:grid;grid-template-columns:200px minmax(0,1fr) 220px 110px 100px;align-items:center;height:34px;font-family:var(--mono);font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted-foreground);border-bottom:1px solid var(--border)">
+          <span>Task</span><span>Default model</span><span>Fallback</span><span style="text-align:right">Per call</span><span style="text-align:right">Calls / 7d</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:200px minmax(0,1fr) 220px 110px 100px;align-items:center;height:52px;border-bottom:1px solid var(--chrome-border)">
+          <span style="font-size:13px;font-weight:500">Image generation</span>
+          <span style="display:inline-flex;align-items:center;gap:8px;height:30px;width:max-content;padding:0 10px;border-radius:9px;background:var(--card);box-shadow:inset 0 0 0 1px var(--input);font-family:var(--mono);font-size:12px">gemini-3.1-flash-image<i data-lucide="chevron-down" style="width:12px;height:12px;color:var(--muted-foreground)"></i></span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">gemini-2.0-flash-image</span>
+          <span style="text-align:right;font-family:var(--mono);font-size:12px">$0.039</span>
+          <span style="text-align:right;font-family:var(--mono);font-size:12px;color:var(--muted-foreground)">1,842</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:200px minmax(0,1fr) 220px 110px 100px;align-items:center;height:52px;border-bottom:1px solid var(--chrome-border)">
+          <span style="font-size:13px;font-weight:500">Image editing</span>
+          <span style="display:inline-flex;align-items:center;gap:8px;height:30px;width:max-content;padding:0 10px;border-radius:9px;background:var(--card);box-shadow:inset 0 0 0 1px var(--input);font-family:var(--mono);font-size:12px">gemini-3-pro-image<i data-lucide="chevron-down" style="width:12px;height:12px;color:var(--muted-foreground)"></i></span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">gemini-3.1-flash-image</span>
+          <span style="text-align:right;font-family:var(--mono);font-size:12px">$0.134</span>
+          <span style="text-align:right;font-family:var(--mono);font-size:12px;color:var(--muted-foreground)">907</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:200px minmax(0,1fr) 220px 110px 100px;align-items:center;height:52px;border-bottom:1px solid var(--chrome-border);background:oklch(0.704 0.191 22.216 / 8%);box-shadow:inset 3px 0 0 var(--destructive)">
+          <span style="font-size:13px;font-weight:500;padding-left:12px">Segmentation</span>
+          <span style="display:inline-flex;align-items:center;gap:8px;height:30px;width:max-content;padding:0 10px;border-radius:9px;background:oklch(0.704 0.191 22.216 / 14%);box-shadow:inset 0 0 0 1px oklch(0.704 0.191 22.216 / 55%);font-family:var(--mono);font-size:12px;color:var(--destructive)"><i data-lucide="triangle-alert" style="width:12px;height:12px"></i>gemini-2.5-flash-image<i data-lucide="chevron-down" style="width:12px;height:12px"></i></span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--destructive);opacity:0.8">none set</span>
+          <span style="text-align:right;font-family:var(--mono);font-size:12px">$0.039</span>
+          <span style="text-align:right;font-family:var(--mono);font-size:12px;color:var(--muted-foreground)">612</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:200px minmax(0,1fr) 220px 110px 100px;align-items:center;height:52px;border-bottom:1px solid var(--chrome-border);background:oklch(0.704 0.191 22.216 / 8%);box-shadow:inset 3px 0 0 var(--destructive)">
+          <span style="font-size:13px;font-weight:500;padding-left:12px">Batch editing</span>
+          <span style="display:inline-flex;align-items:center;gap:8px;height:30px;width:max-content;padding:0 10px;border-radius:9px;background:oklch(0.704 0.191 22.216 / 14%);box-shadow:inset 0 0 0 1px oklch(0.704 0.191 22.216 / 55%);font-family:var(--mono);font-size:12px;color:var(--destructive)"><i data-lucide="triangle-alert" style="width:12px;height:12px"></i>gemini-2.5-flash-image<i data-lucide="chevron-down" style="width:12px;height:12px"></i></span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">gemini-2.0-flash-image</span>
+          <span style="text-align:right;font-family:var(--mono);font-size:12px">$0.039</span>
+          <span style="text-align:right;font-family:var(--mono);font-size:12px;color:var(--muted-foreground)">1,105</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:200px minmax(0,1fr) 220px 110px 100px;align-items:center;height:52px;border-bottom:1px solid var(--chrome-border)">
+          <span style="font-size:13px;font-weight:500">Video</span>
+          <span style="display:inline-flex;align-items:center;gap:8px;height:30px;width:max-content;padding:0 10px;border-radius:9px;background:var(--card);box-shadow:inset 0 0 0 1px var(--input);font-family:var(--mono);font-size:12px">veo-3.1-fast<i data-lucide="chevron-down" style="width:12px;height:12px;color:var(--muted-foreground)"></i></span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">veo-3.0</span>
+          <span style="text-align:right;font-family:var(--mono);font-size:12px">$0.480</span>
+          <span style="text-align:right;font-family:var(--mono);font-size:12px;color:var(--muted-foreground)">38</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:200px minmax(0,1fr) 220px 110px 100px;align-items:center;height:52px;border-bottom:1px solid var(--chrome-border)">
+          <span style="font-size:13px;font-weight:500">3D object detection</span>
+          <span style="display:inline-flex;align-items:center;gap:8px;height:30px;width:max-content;padding:0 10px;border-radius:9px;box-shadow:inset 0 0 0 1px var(--input);font-family:var(--mono);font-size:12px;color:var(--muted-foreground)">Not assigned<i data-lucide="chevron-down" style="width:12px;height:12px"></i></span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">—</span>
+          <span style="text-align:right;font-family:var(--mono);font-size:12px;color:var(--muted-foreground)">—</span>
+          <span style="text-align:right;font-family:var(--mono);font-size:12px;color:var(--muted-foreground)">0</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:200px minmax(0,1fr) 220px 110px 100px;align-items:center;height:52px">
+          <span style="font-size:13px;font-weight:500">Drift analysis</span>
+          <span style="display:inline-flex;align-items:center;gap:8px;height:30px;width:max-content;padding:0 10px;border-radius:9px;background:var(--card);box-shadow:inset 0 0 0 1px var(--input);font-family:var(--mono);font-size:12px">gemini-3.1-flash<i data-lucide="chevron-down" style="width:12px;height:12px;color:var(--muted-foreground)"></i></span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">gemini-2.5-flash</span>
+          <span style="text-align:right;font-family:var(--mono);font-size:12px">$0.002</span>
+          <span style="text-align:right;font-family:var(--mono);font-size:12px;color:var(--muted-foreground)">2,749</span>
+        </div>
+      </div>
+
+      <div style="padding:20px 18px 8px;border-top:1px solid var(--chrome-border);margin-top:8px">
+        <p style="margin:0 0 2px;font-family:var(--mono);font-size:10px;letter-spacing:0.24em;text-transform:uppercase;color:var(--muted-foreground)">Catalog</p>
+        <p style="margin:0;font-size:13px;color:var(--muted-foreground)">What each model can do. Filled dot means supported.</p>
+      </div>
+
+      <div style="padding:0 18px 18px">
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) repeat(5,88px) 96px 84px;align-items:center;height:34px;font-family:var(--mono);font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted-foreground);border-bottom:1px solid var(--border)">
+          <span>Model</span><span style="text-align:center">Mask</span><span style="text-align:center">Ground</span><span style="text-align:center">4K</span><span style="text-align:center">Video</span><span style="text-align:center">3D</span><span style="text-align:right">Per call</span><span style="text-align:right">p50</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) repeat(5,88px) 96px 84px;align-items:center;height:48px;border-bottom:1px solid var(--chrome-border)">
+          <div><span style="font-family:var(--mono);font-size:12.5px">gemini-3.1-flash-image</span><span style="margin-left:9px;display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:4px;background:var(--muted);font-family:var(--mono);font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted-foreground);vertical-align:middle">2 tasks</span></div>
+          <span style="text-align:center;font-size:13px">●</span><span style="text-align:center;font-size:13px">●</span><span style="text-align:center;font-size:13px;color:var(--muted-foreground);opacity:0.4">○</span><span style="text-align:center;font-size:13px;color:var(--muted-foreground);opacity:0.4">○</span><span style="text-align:center;font-size:13px;color:var(--muted-foreground);opacity:0.4">○</span>
+          <span style="text-align:right;font-family:var(--mono);font-size:12px">$0.039</span><span style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">4.1s</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) repeat(5,88px) 96px 84px;align-items:center;height:48px;border-bottom:1px solid var(--chrome-border)">
+          <div><span style="font-family:var(--mono);font-size:12.5px">gemini-3-pro-image</span><span style="margin-left:9px;display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:4px;background:oklch(0.623 0.214 259.815 / 20%);color:var(--info);font-family:var(--mono);font-size:9px;letter-spacing:0.08em;text-transform:uppercase;vertical-align:middle">new</span></div>
+          <span style="text-align:center;font-size:13px">●</span><span style="text-align:center;font-size:13px">●</span><span style="text-align:center;font-size:13px">●</span><span style="text-align:center;font-size:13px;color:var(--muted-foreground);opacity:0.4">○</span><span style="text-align:center;font-size:13px">●</span>
+          <span style="text-align:right;font-family:var(--mono);font-size:12px">$0.134</span><span style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">11.6s</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) repeat(5,88px) 96px 84px;align-items:center;height:48px;border-bottom:1px solid var(--chrome-border);background:oklch(0.704 0.191 22.216 / 8%)">
+          <div><span style="font-family:var(--mono);font-size:12.5px;color:var(--destructive)">gemini-2.5-flash-image</span><span style="margin-left:9px;display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 6px;border-radius:4px;background:oklch(0.704 0.191 22.216 / 20%);color:var(--destructive);font-family:var(--mono);font-size:9px;letter-spacing:0.08em;text-transform:uppercase;vertical-align:middle">deprecated · 12 Aug</span></div>
+          <span style="text-align:center;font-size:13px;opacity:0.6">●</span><span style="text-align:center;font-size:13px;color:var(--muted-foreground);opacity:0.4">○</span><span style="text-align:center;font-size:13px;color:var(--muted-foreground);opacity:0.4">○</span><span style="text-align:center;font-size:13px;color:var(--muted-foreground);opacity:0.4">○</span><span style="text-align:center;font-size:13px;color:var(--muted-foreground);opacity:0.4">○</span>
+          <span style="text-align:right;font-family:var(--mono);font-size:12px">$0.039</span><span style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">3.8s</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) repeat(5,88px) 96px 84px;align-items:center;height:48px;border-bottom:1px solid var(--chrome-border)">
+          <div><span style="font-family:var(--mono);font-size:12.5px">veo-3.1-fast</span></div>
+          <span style="text-align:center;font-size:13px;color:var(--muted-foreground);opacity:0.4">○</span><span style="text-align:center;font-size:13px;color:var(--muted-foreground);opacity:0.4">○</span><span style="text-align:center;font-size:13px;color:var(--muted-foreground);opacity:0.4">○</span><span style="text-align:center;font-size:13px">●</span><span style="text-align:center;font-size:13px;color:var(--muted-foreground);opacity:0.4">○</span>
+          <span style="text-align:right;font-family:var(--mono);font-size:12px">$0.480</span><span style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">96s</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) repeat(5,88px) 96px 84px;align-items:center;height:48px">
+          <div><span style="font-family:var(--mono);font-size:12.5px">gemini-3.1-flash</span><span style="margin-left:9px;font-size:11px;color:var(--muted-foreground)">text and analysis only</span></div>
+          <span style="text-align:center;font-size:13px;color:var(--muted-foreground);opacity:0.4">○</span><span style="text-align:center;font-size:13px">●</span><span style="text-align:center;font-size:13px;color:var(--muted-foreground);opacity:0.4">○</span><span style="text-align:center;font-size:13px;color:var(--muted-foreground);opacity:0.4">○</span><span style="text-align:center;font-size:13px;color:var(--muted-foreground);opacity:0.4">○</span>
+          <span style="text-align:right;font-family:var(--mono);font-size:12px">$0.002</span><span style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--muted-foreground)">0.9s</span>
+        </div>
+      </div>
+
+    </div>
+
+    <p style="margin:14px 0 0;max-width:96ch;font-size:13px;line-height:1.6;color:var(--muted-foreground);text-wrap:pretty">The two notifications differ in kind, not degree. The new-model card is a card: neutral surface, dismissable, no colour. The deprecation is a bar with a red spine, a countdown, the names of the tasks that break, and a button that fixes it — and it stains the two affected rows in the table below so the notice and the damage are visually the same thing.</p>
+  </div>
+
+</section>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  componentDidMount(){ this.tick(); }
+  componentDidUpdate(){ this.tick(); }
+  tick(){ if (window.lucide) window.lucide.createIcons(); }
+  renderVals(){ return {}; }
+}
+</script>
+</body>
+</html>

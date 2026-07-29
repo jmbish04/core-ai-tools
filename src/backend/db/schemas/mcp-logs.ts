@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 
 // ---------------------------------------------------------------------------
@@ -6,37 +6,50 @@ import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 // ---------------------------------------------------------------------------
 
 export const MCP_LOGS_TABLE_DESCRIPTION =
-  "Request/response log for MCP (Model Context Protocol) tool invocations. Populated by health checks and runtime telemetry to power latency dashboards and failure forensics.";
+  "Durable request/response log for every MCP tool invocation. The request row is written BEFORE the handler runs, so the prompt/payload survives even if the handler crashes or times out mid-edit; it is then updated with the result. Linked to the revision tree by session_uuid/revision_id so models can review what was tried and reason about why edits failed.";
 
 export const MCP_LOGS_COLUMN_DESCRIPTIONS: Record<string, string> = {
   id: "Unique log entry identifier (UUID v4).",
-  server_name: "MCP server identifier (e.g. cloudflare-docs, internal-broker).",
+  server_name: "Surface identifier (e.g. core-ai-tools-mcp).",
   tool_name: "Name of the invoked tool / method.",
-  request: "JSON payload sent to the MCP tool (sanitized).",
-  response: "JSON payload returned by the MCP tool (sanitized).",
-  success: "1 if the call resolved without error, 0 if it failed or timed out.",
+  request: "Full JSON arguments sent to the tool (the prompt/payload — never dropped).",
+  response: "Full JSON result returned by the tool. Null until the handler completes.",
+  success: "1 if the call resolved without error, 0 if it failed/timed out, null while pending.",
   error_message: "Captured error string when success = 0.",
   latency_ms: "End-to-end wall-clock latency in milliseconds.",
-  created_at: "Unix timestamp (seconds) when the call completed.",
+  session_uuid: "Session the call belongs to, when derivable from the args or result (nullable).",
+  revision_id: "Revision the call produced or acted on, when known (nullable).",
+  created_at: "Unix timestamp (seconds) when the request row was written.",
 };
 
 // ---------------------------------------------------------------------------
 // Table definition
 // ---------------------------------------------------------------------------
 
-export const mcpLogs = sqliteTable("mcp_logs", {
-  id: text("id").primaryKey(),
-  serverName: text("server_name").notNull(),
-  toolName: text("tool_name").notNull(),
-  request: text("request", { mode: "json" }).$type<Record<string, unknown>>(),
-  response: text("response", { mode: "json" }).$type<Record<string, unknown>>(),
-  success: integer("success", { mode: "boolean" }).notNull().default(false),
-  errorMessage: text("error_message"),
-  latencyMs: integer("latency_ms").notNull().default(0),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-});
+export const mcpLogs = sqliteTable(
+  "mcp_logs",
+  {
+    id: text("id").primaryKey(),
+    serverName: text("server_name").notNull(),
+    toolName: text("tool_name").notNull(),
+    request: text("request", { mode: "json" }).$type<unknown>(),
+    response: text("response", { mode: "json" }).$type<unknown>(),
+    // Nullable tri-state: null = pending (request logged, handler still running),
+    // true = ok, false = failed. Not defaulted so a pending row is distinguishable.
+    success: integer("success", { mode: "boolean" }),
+    errorMessage: text("error_message"),
+    latencyMs: integer("latency_ms").notNull().default(0),
+    sessionUuid: text("session_uuid"),
+    revisionId: text("revision_id"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => ({
+    bySession: index("mcp_logs_session_created_idx").on(t.sessionUuid, t.createdAt),
+    byCreated: index("mcp_logs_created_idx").on(t.createdAt),
+  }),
+);
 
 // ---------------------------------------------------------------------------
 // Zod schemas & types

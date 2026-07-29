@@ -1,0 +1,13 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import { SessionsList } from "@/components/sessions/SessionsList";
+---
+
+<BaseLayout
+  title="Sessions — core-ai-tools"
+  description="Every editing session — resume one, or watch new revisions arrive live."
+>
+  <main class="container mx-auto max-w-7xl px-4 py-8">
+    <SessionsList client:load />
+  </main>
+</BaseLayout>

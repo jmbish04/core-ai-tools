@@ -1,0 +1,10 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import { LibraryGrid } from "@/components/library/LibraryGrid";
+---
+
+<BaseLayout title="Image Library — core-ai-tools" description="Source photos and generated assets.">
+  <main class="container mx-auto max-w-7xl px-4 py-8">
+    <LibraryGrid client:load />
+  </main>
+</BaseLayout>

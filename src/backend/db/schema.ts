@@ -34,3 +34,13 @@ export * from "./schemas/settings";
 export * from "./schemas/notifications";
 export * from "./schemas/inbox";
 export * from "./schemas/chat";
+
+// ---------------------------------------------------------------------------
+// core-ai-tools domains
+// ---------------------------------------------------------------------------
+export * from "./schemas/library";
+export * from "./schemas/sessions";
+export * from "./schemas/models";
+export * from "./schemas/usage";
+export * from "./schemas/prompts";
+export * from "./schemas/understanding";

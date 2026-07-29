@@ -1,0 +1,23 @@
+---
+import "@/styles/global.css";
+import { LoginForm } from "@/components/LoginForm";
+
+const next = Astro.url.searchParams.get("next") ?? "/";
+---
+
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sign in · core-ai-tools</title>
+    <script is:inline>
+      document.documentElement.classList.add("dark");
+    </script>
+  </head>
+  <body class="bg-background text-foreground antialiased">
+    <main class="grid min-h-svh place-items-center p-4">
+      <LoginForm client:load next={next} />
+    </main>
+  </body>
+</html>

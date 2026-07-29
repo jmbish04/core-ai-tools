@@ -22,5 +22,8 @@ export const errorHandler: ErrorHandler<{
     }),
   );
 
-  return c.json({ error: message }, status);
+  // Core `CoreError`s carry a machine-readable `code` — surface it so clients
+  // (and the MCP layer) can branch without string-matching.
+  const code = "code" in error && typeof error.code === "string" ? error.code : undefined;
+  return c.json(code ? { error: message, code } : { error: message }, status);
 };

@@ -175,7 +175,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
         // The generated runtime binding is typed as `DurableObjectNamespace<undefined>`
         // (runtime types don't carry the agent class), so cast to the concrete
         // namespace to recover the typed RPC stub.
-        const ns = this.env.RESEARCHER_AGENT as unknown as DurableObjectNamespace<ResearcherAgent>;
+        const ns = (this.env as any).RESEARCHER_AGENT as unknown as DurableObjectNamespace<ResearcherAgent>;
         const stub = await getAgentByName<Env, ResearcherAgent>(ns, instance);
         const r = await stub.research(task);
         const assistantText =
@@ -192,7 +192,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
           messages: buildNestedMessages(r.taskId, task, assistantText),
         };
       } else {
-        const ns = this.env.CODER_AGENT as unknown as DurableObjectNamespace<CoderAgent>;
+        const ns = (this.env as any).CODER_AGENT as unknown as DurableObjectNamespace<CoderAgent>;
         const stub = await getAgentByName<Env, CoderAgent>(ns, instance);
         const r = await stub.code(task);
         const assistantText =

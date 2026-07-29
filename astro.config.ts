@@ -39,20 +39,7 @@ export default defineConfig({
     // and the `durable_objects.bindings` class names in `wrangler.jsonc`.
     workerEntryPoint: {
       path: "src/_worker.ts",
-      namedExports: [
-        "ChatBroker",
-        "CodeModeAgent",
-        "BrowserHitlAgent",
-        "WorkflowsAgent",
-        "ArtifactAgent",
-        "NotificationsAgent",
-        "OrchestratorAgent",
-        "ResearcherAgent",
-        "CoderAgent",
-        "McpAgent",
-        "ThinkingAgent",
-        "SkillsAgent",
-      ],
+      namedExports: ["ChatBroker", "NotificationsAgent", "SessionDO"],
     },
   }),
   integrations: [react()],

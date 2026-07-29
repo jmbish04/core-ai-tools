@@ -36,6 +36,62 @@
       "when": 1782890288875,
       "tag": "0004_sticky_exiles",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1785070461968,
+      "tag": "0005_naive_wendell_vaughn",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1785071613624,
+      "tag": "0006_first_lila_cheney",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1785073416652,
+      "tag": "0007_tired_blazing_skull",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1785105553258,
+      "tag": "0008_fluffy_richard_fisk",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1785105732841,
+      "tag": "0009_ancient_unicorn",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1785106623154,
+      "tag": "0010_curved_katie_power",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1785107431282,
+      "tag": "0011_acoustic_sir_ram",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1785139082370,
+      "tag": "0012_curved_albert_cleary",
+      "breakpoints": true
     }
   ]
 }

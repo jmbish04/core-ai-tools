@@ -29,38 +29,66 @@ import { routeAgentRequest } from "agents";
 
 import { app as honoApp } from "./backend/api/index";
 import { handleInboundEmail } from "./backend/email/inbound";
+import { buildOAuthHandler } from "./backend/mcp/oauth";
+import { verifySessionCookie } from "./backend/lib/cookies";
+import { createCoreContext, reapStuckRevisions } from "./backend/core";
+import { drainUsageOutbox } from "./backend/ai/dispatch";
 
-// Import Durable Object classes (the Agents SDK showcase + realtime agents)
-import { CodeModeAgent } from "./backend/ai/agents/CodeModeAgent";
-import { BrowserHitlAgent } from "./backend/ai/agents/BrowserHitlAgent";
-import { WorkflowsAgent } from "./backend/ai/agents/WorkflowsAgent";
-import { ArtifactAgent } from "./backend/ai/agents/ArtifactAgent";
-import { OrchestratorAgent } from "./backend/ai/agents/OrchestratorAgent";
-import { ResearcherAgent } from "./backend/ai/agents/ResearcherAgent";
-import { CoderAgent } from "./backend/ai/agents/CoderAgent";
+/**
+ * Cron maintenance: reap revisions stranded in queued/running past the timeout,
+ * then deliver any buffered guardian usage. Runs on the `crons` trigger.
+ */
+async function runMaintenance(env: Env): Promise<void> {
+  const core = createCoreContext(env);
+  try {
+    const reaped = await reapStuckRevisions(core);
+    if (reaped.length) console.log(`[cron] reaped ${reaped.length} stuck revision(s): ${reaped.join(", ")}`);
+  } catch (e) {
+    console.error("[cron] reap failed:", e instanceof Error ? e.message : String(e));
+  }
+  try {
+    const drained = await drainUsageOutbox(env, core.db);
+    if (drained) console.log(`[cron] drained ${drained} usage record(s) to guardian`);
+  } catch (e) {
+    console.error("[cron] usage drain failed:", e instanceof Error ? e.message : String(e));
+  }
+}
+
+// Import Durable Object classes. core-ai-tools keeps ChatBroker (assistant-ui
+// chat), NotificationsAgent (realtime feed), and SessionDO (per-session fanout);
+// the template's showcase agents were removed (wrangler v2 deleted_classes).
 import { ChatBroker } from "./backend/ai/agents/ChatBroker";
 import { NotificationsAgent } from "./backend/ai/agents/NotificationsAgent";
-import { McpAgent } from "./backend/ai/agents/McpAgent";
-import { ThinkingAgent } from "./backend/ai/agents/ThinkingAgent";
-import { SkillsAgent } from "./backend/ai/agents/SkillsAgent";
+import { SessionDO } from "./backend/realtime/session-do";
 
 // Re-export Durable Object classes (Pattern B: the @astrojs/cloudflare adapter
 // re-exports these alongside the default handler so Cloudflare resolves every
 // DO binding declared in wrangler.jsonc).
-export {
-  CodeModeAgent,
-  BrowserHitlAgent,
-  WorkflowsAgent,
-  ArtifactAgent,
-  OrchestratorAgent,
-  ResearcherAgent,
-  CoderAgent,
-  ChatBroker,
-  NotificationsAgent,
-  McpAgent,
-  ThinkingAgent,
-  SkillsAgent,
-};
+export { ChatBroker, NotificationsAgent, SessionDO };
+
+/** True for paths the Hono API owns (REST + OpenAPI doc surfaces). */
+/**
+ * True for an HTML page navigation that should be gated behind the session
+ * cookie. Excludes /login (the gate's own escape hatch), the API + agent/ws/mcp
+ * surfaces (they enforce their own auth), OAuth discovery, Astro islands/assets
+ * (`/_*`), and any request for a file with an extension (favicon, .css, .js…).
+ */
+function isPageRequest(pathname: string): boolean {
+  if (pathname === "/login") return false;
+  if (
+    pathname.startsWith("/api") ||
+    pathname.startsWith("/agents") ||
+    pathname.startsWith("/ws") ||
+    pathname.startsWith("/realtime") ||
+    pathname === "/mcp" ||
+    pathname.startsWith("/_") ||
+    pathname.startsWith("/.well-known")
+  ) {
+    return false;
+  }
+  if (/\.[a-z0-9]+$/i.test(pathname)) return false;
+  return true;
+}
 
 /** True for paths the Hono API owns (REST + OpenAPI doc surfaces). */
 function isApiPath(pathname: string): boolean {
@@ -107,9 +135,49 @@ export function createExports() {
         if (agentResponse) return agentResponse;
       }
 
+      // NOTE: `/mcp` + the OAuth endpoints (/authorize, /token, /register,
+      // /.well-known/*) are handled by the OAuthProvider that wraps THIS handler
+      // (see the bottom of createExports). They never reach here.
+
+      // 1b. SessionDO realtime WebSocket: /ws/session/:uuid. This is a genuine
+      // raw-request proxy (forwarding the caller's WS upgrade), which is the
+      // sanctioned use of stub.fetch — NOT method dispatch (that goes via RPC).
+      // Accept both the original `/ws/session/:uuid` and the design build's
+      // `/realtime/ws/sessions/:uuid`; both proxy the WS upgrade to the SessionDO.
+      const wsPrefix = url.pathname.startsWith("/realtime/ws/sessions/")
+        ? "/realtime/ws/sessions/"
+        : url.pathname.startsWith("/ws/session/")
+          ? "/ws/session/"
+          : null;
+      if (wsPrefix) {
+        const uuid = url.pathname.slice(wsPrefix.length);
+        if (uuid) {
+          // Gate the realtime channel behind the session cookie. The browser WS
+          // upgrade carries same-origin cookies; bearer isn't usable on a
+          // WebSocket, so cookie-only here.
+          if (!(await verifySessionCookie(env, request.headers.get("Cookie")))) {
+            return new Response("Unauthorized", { status: 401 });
+          }
+          const stub = env.SESSION_DO.getByName(uuid);
+          return stub.fetch(request as any);
+        }
+      }
+
       // 2. REST API + OpenAPI docs → Hono.
       if (isApiPath(url.pathname)) {
         return honoApp.fetch(request as any, env, ctx);
+      }
+
+      // 2b. Gate HTML page navigations behind the session cookie. /login is the
+      // public escape hatch; the API enforces its own auth (cookie OR
+      // WORKER_API_KEY bearer). Unauthenticated page loads redirect to /login.
+      if (isPageRequest(url.pathname)) {
+        const authed = await verifySessionCookie(env, request.headers.get("Cookie"));
+        if (!authed) {
+          const to = new URL("/login", url);
+          if (url.pathname !== "/") to.searchParams.set("next", url.pathname);
+          return new Response(null, { status: 302, headers: { Location: to.toString() } });
+        }
       }
 
       // 3. Everything else → Astro SSR (with static-asset fallthrough).
@@ -125,22 +193,30 @@ export function createExports() {
     async email(message: any, env: Env, ctx: ExecutionContext) {
       await handleInboundEmail(message, env, ctx);
     },
+
+    // Cron trigger — stuck-revision reaper + usage-outbox drain (see wrangler crons).
+    async scheduled(_event: unknown, env: Env, ctx: ExecutionContext) {
+      ctx.waitUntil(runMaintenance(env));
+    },
+  } as unknown as ExportedHandler<Env>;
+
+  // Wrap the base handler with the OAuth 2.1 provider: it owns `/mcp` (protected),
+  // `/authorize`, `/token`, `/register`, and `/.well-known/*`, delegating
+  // everything else back to `handler`. Email routing stays on the default export
+  // (OAuthProvider only wraps `fetch`).
+  const oauth = buildOAuthHandler(handler as unknown as import("@cloudflare/workers-types").ExportedHandler<Env>);
+  const wrapped = {
+    fetch: (request: Request, env: Env, ctx: ExecutionContext) =>
+      oauth.fetch(request as never, env as never, ctx as never),
+    email: (handler as { email: (m: unknown, e: Env, c: ExecutionContext) => Promise<void> }).email,
+    scheduled: (handler as { scheduled: (e: unknown, env: Env, c: ExecutionContext) => Promise<void> }).scheduled,
   } as unknown as ExportedHandler<Env>;
 
   return {
-    default: handler,
-    CodeModeAgent,
-    BrowserHitlAgent,
-    WorkflowsAgent,
-    ArtifactAgent,
-    OrchestratorAgent,
-    ResearcherAgent,
-    CoderAgent,
+    default: wrapped,
     ChatBroker,
     NotificationsAgent,
-    McpAgent,
-    ThinkingAgent,
-    SkillsAgent,
+    SessionDO,
   };
 }
 

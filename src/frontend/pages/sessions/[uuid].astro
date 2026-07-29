@@ -1,0 +1,25 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import { SessionDetail } from "@/components/sessions/SessionDetail";
+import { SessionAssistant } from "@/components/sessions/SessionAssistant";
+
+const { uuid } = Astro.params;
+---
+
+<BaseLayout title="Session" description="Session detail — revision tree, realtime edits, and a session-aware assistant.">
+  <main class="container mx-auto flex max-w-7xl flex-col gap-6 px-4 py-12">
+    <header class="flex flex-col gap-2">
+      <a href="/sessions" class="text-sm text-muted-foreground underline-offset-4 hover:underline">← Sessions</a>
+      <h1 class="font-mono text-2xl font-semibold tracking-tight">{uuid}</h1>
+    </header>
+
+    <div class="grid gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+      <div class="min-w-0">
+        <SessionDetail uuid={uuid!} client:load />
+      </div>
+      <aside class="min-w-0 lg:sticky lg:top-6 lg:self-start">
+        <SessionAssistant sessionUuid={uuid!} client:only="react" />
+      </aside>
+    </div>
+  </main>
+</BaseLayout>

@@ -1,0 +1,2 @@
+ALTER TABLE `revisions` ADD `idempotency_key` text;--> statement-breakpoint
+CREATE UNIQUE INDEX `uniq_revisions_idempotency` ON `revisions` (`session_uuid`,`idempotency_key`) WHERE "revisions"."idempotency_key" is not null;

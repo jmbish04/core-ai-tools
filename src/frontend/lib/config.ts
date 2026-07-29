@@ -27,46 +27,42 @@ export type SiteConfig = {
 };
 
 export const siteConfig: SiteConfig = {
-  name: "Cloudflare Edge Showcase",
+  name: "core-ai-tools",
   description:
-    "Multi-page edge frontend showcase using Astro, React, Shadcn UI, and assistant-ui with Cloudflare Agents SDK",
-  url: "https://example.com",
+    "Session-based AI image & video editing platform — a non-destructive revision tree, driven over REST, MCP, and the browser, live over WebSocket.",
+  url: "https://core-ai-tools.hacolby.workers.dev",
   author: {
-    name: "Author",
-    url: "https://example.com",
+    name: "126colby",
+    url: "https://github.com/jmbish04",
   },
   links: {
-    github: "https://github.com",
+    github: "https://github.com/jmbish04/core-ai-tools",
   },
+  // Primary destinations for the image-editing product.
   navItems: [
-    { href: "/", label: "Overview" },
-    { href: "/dashboard", label: "Dashboard" },
+    { href: "/library", label: "Library" },
+    { href: "/sessions", label: "Sessions" },
+    { href: "/models", label: "Models" },
+    { href: "/prompts", label: "Prompts" },
   ],
   navGroups: [
     {
       label: "Workspace",
       items: [
-        { href: "/projects", label: "Projects" },
-        { href: "/tasks/board", label: "Task Board" },
-        { href: "/tasks", label: "Tasks" },
-        { href: "/notes", label: "Notes" },
+        { href: "/", label: "Home" },
+        { href: "/chat", label: "Assistant Chat" },
+        { href: "/dashboard", label: "Analytics Dashboard" },
         { href: "/inbox", label: "Inbox" },
-        { href: "/analytics", label: "Analytics" },
       ],
     },
     {
-      label: "Agents",
+      label: "Developer",
       items: [
-        { href: "/chat", label: "Chat" },
-        { href: "/assistant", label: "Assistant" },
-        { href: "/showcase/code-mode", label: "Code Mode" },
-        { href: "/showcase/browser-hitl", label: "Browser HITL" },
-        { href: "/showcase/multi-agent", label: "Multi-Agent" },
-        { href: "/showcase/workflows", label: "Workflows" },
-        { href: "/showcase/artifacts", label: "Artifacts" },
-        { href: "/showcase/mcp", label: "MCP Tools" },
-        { href: "/showcase/thinking", label: "Thinking" },
-        { href: "/showcase/skills", label: "Skills" },
+        { href: "/mcp-setup", label: "MCP Setup" },
+        { href: "/openapi.json", label: "OpenAPI" },
+        { href: "/scalar", label: "Scalar" },
+        { href: "/swagger", label: "Swagger" },
+        { href: "/docs", label: "Docs" },
       ],
     },
     {
@@ -74,13 +70,7 @@ export const siteConfig: SiteConfig = {
       items: [
         { href: "/notifications", label: "Notifications" },
         { href: "/settings", label: "Settings" },
-        { href: "/showcase/features", label: "Platform Features" },
-        { href: "/showcase/utilities", label: "Data Utilities" },
-        { href: "/docs", label: "Documentation" },
-        { href: "/playbook", label: "Playbook" },
-        { href: "/openapi.json", label: "OpenAPI" },
-        { href: "/swagger", label: "Swagger" },
-        { href: "/scalar", label: "Scalar" },
+        { href: "/showcase/utilities", label: "Utilities" },
       ],
     },
   ],

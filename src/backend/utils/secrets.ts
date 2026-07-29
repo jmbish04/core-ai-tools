@@ -46,6 +46,34 @@ export async function getCloudflareApiToken(env: Env): Promise<string | undefine
   return getSecret(env, "CLOUDFLARE_WRANGLER_API_TOKEN");
 }
 
+/**
+ * Fetch the Cloudflare Images account hash — the public identifier embedded in
+ * delivery URLs (`imagedelivery.net/<HASH>/<image_id>/<variant>`). Not secret,
+ * but stored in the Secrets Store so there is a single resolution path.
+ */
+export async function getImagesAccountHash(env: Env): Promise<string | undefined> {
+  return getSecret(env, "CLOUDFLARE_IMAGES_ACCOUNT_HASH");
+}
+
+/**
+ * Purpose-scoped Cloudflare Images REST token (direct upload, variants, delete).
+ * Prefer this least-privilege token; the Images adapter falls back to the broad
+ * wrangler token (`getCloudflareApiToken`) if this one lacks Images write scope.
+ */
+export async function getImagesApiToken(env: Env): Promise<string | undefined> {
+  return getSecret(env, "CLOUDFLARE_IMAGES_STREAM_TOKEN");
+}
+
+/** Google Gemini API key (header `x-goog-api-key`, never a query string). */
+export async function getGeminiApiKey(env: Env): Promise<string | undefined> {
+  return getSecret(env, "GEMINI_API_KEY");
+}
+
+/** OpenAI API key (header `Authorization: Bearer`). */
+export async function getOpenAiApiKey(env: Env): Promise<string | undefined> {
+  return getSecret(env, "OPENAI_API_KEY");
+}
+
 /** Fetch the Cloudflare account id. */
 export async function getCloudflareAccountId(env: Env): Promise<string | undefined> {
   if (env.CLOUDFLARE_ACCOUNT_ID) {
@@ -64,10 +92,19 @@ export async function getCloudflareAccountId(env: Env): Promise<string | undefin
  * use, with a dev fallback if KV is unavailable.
  */
 export async function getCookieSigningKey(env: Env): Promise<string> {
+  // Derive the cookie signing key DETERMINISTICALLY from the worker key. This is
+  // stable across deploys, isolates, and regions with no KV dependency — the old
+  // KV approach fell back to a DIFFERENT constant on any KV read hiccup, which
+  // silently re-signed with the wrong key and logged the user out. A static
+  // version salt namespaces it so the raw worker key is never the HMAC secret.
+  const base = await getWorkerApiKey(env);
+  if (base) return `cr_session_v1:${base.trim()}`;
+
+  // Fallback only if the worker key is somehow unavailable: reuse the legacy KV
+  // key so existing sessions still verify.
   try {
     let key = await env.SESSIONS.get("COOKIE_SIGNING_KEY");
     if (key) return key;
-
     key = crypto.randomUUID();
     await env.SESSIONS.put("COOKIE_SIGNING_KEY", key);
     return key;

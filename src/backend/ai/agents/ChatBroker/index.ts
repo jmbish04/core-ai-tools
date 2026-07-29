@@ -46,6 +46,13 @@ import { z } from "zod";
 import { getDb } from "@/backend/db";
 import { chatThreads } from "@/backend/db/schema";
 import { getChatModel } from "@/backend/ai/providers/ai-sdk";
+import {
+  createCoreContext,
+  getSessionTree,
+  listLibrary,
+  listMcpLogs,
+  listSessions,
+} from "@/backend/core";
 
 /**
  * System prompt built with a real multi-line template literal (never
@@ -54,22 +61,22 @@ import { getChatModel } from "@/backend/ai/providers/ai-sdk";
  * The prompt advertises the generative-UI tools so the model reaches for them
  * to render rich inline cards instead of describing data in prose.
  */
-const SYSTEM_PROMPT = `You are the in-app assistant for the Cloudflare Edge Showcase.
-Reply concisely. Prefer short paragraphs and fenced code blocks for code.
-Never invent Cloudflare bindings; cite the user's wrangler.jsonc when asked.
+const SYSTEM_PROMPT = `You are the in-app assistant for core-ai-tools — a session-based AI image (and video) editing platform. A user picks a source photo and issues edits in natural language; every attempt is a node in a non-destructive revision tree (fork from any node, retry the same edit).
 
-You can render rich inline UI through these tools — prefer calling the right tool
-over describing the data in prose:
-- "showMetric" — a single KPI / statistic worth highlighting. Renders a KPI card.
-- "showCard" — a titled summary with optional bullet points and a footnote.
-- "showChart" — a comparison or trend over labelled data points. Pick kind
-  "bar" | "line" | "area" | "pie". Use for any "compare / over time / breakdown".
-- "showMindmap" — a concept breakdown as a hierarchical mind map (a root topic
-  with nested children). Use when explaining how ideas relate.
-- "createTaskDraft" — propose a task / action item the user can add to their board.
+You can look up REAL platform data with these tools. ALWAYS call the right tool instead of guessing or saying you can't see a session — you can:
+- "lookupSession" — a session's full revision tree: every edit attempt, its prompt, model, status, grade, and parent/child structure. Call this whenever the user names a session id or asks about a session.
+- "sessionInteractionLog" — the recent tool calls for a session with their inputs and any errors. Use this to reason about WHY an edit failed or didn't turn out as intended.
+- "listLibraryImages" — the user's source and generated images.
+- "listRecentSessions" — recent active sessions (when the user doesn't give an id).
 
-Use showChart for comparisons, showMindmap for concept breakdowns, showCard for
-summaries, and createTaskDraft to propose a task.`;
+When a user references a session id, look it up FIRST, then help.
+
+You can also render rich inline UI — prefer the right tool over prose:
+- "showMetric" — a single KPI / statistic. "showCard" — a titled summary with bullets.
+- "showChart" (bar|line|area|pie) for comparisons/trends. "showMindmap" for concept breakdowns.
+- "createTaskDraft" — propose a task the user can add to their board.
+
+Reply concisely. Prefer short paragraphs and fenced code blocks for code.`;
 
 /**
  * Generative-UI tools exposed to the model. Each has a real `execute` that
@@ -186,6 +193,68 @@ const CHAT_TOOLS = {
   }),
 };
 
+/**
+ * Core data tools — read the platform's real state so the assistant can help
+ * with an actual session instead of claiming it "can't see" one. Built per-call
+ * because each `execute` needs the DO's `env` for the core context. Every
+ * `execute` returns its error as data (not a throw) so a lookup miss becomes a
+ * tool result the model can read and explain, never a stream crash.
+ */
+function coreTools(env: Env): ToolSet {
+  const ctx = () => createCoreContext(env);
+  return {
+    lookupSession: tool({
+      description:
+        "Look up a session's full revision tree — every edit attempt with its prompt, model, status, grade, and parent/child structure. Call this whenever the user references a session id or asks about a session.",
+      inputSchema: z.object({ sessionUuid: z.string().describe("The session UUID.") }),
+      execute: async ({ sessionUuid }) => {
+        try {
+          return await getSessionTree(ctx(), sessionUuid);
+        } catch (e) {
+          return { error: e instanceof Error ? e.message : String(e) };
+        }
+      },
+    }),
+    sessionInteractionLog: tool({
+      description:
+        "Recent tool calls for a session with their inputs and any errors. Use to reason about WHY an edit failed or did not turn out as intended.",
+      inputSchema: z.object({
+        sessionUuid: z.string().describe("The session UUID."),
+        limit: z.number().optional().describe("Max entries (default 30)."),
+      }),
+      execute: async ({ sessionUuid, limit }) => {
+        try {
+          return await listMcpLogs(ctx(), { sessionUuid, limit: limit ?? 30 });
+        } catch (e) {
+          return { error: e instanceof Error ? e.message : String(e) };
+        }
+      },
+    }),
+    listLibraryImages: tool({
+      description: "List the user's source and generated library images.",
+      inputSchema: z.object({ limit: z.number().optional().describe("Max images (default 30).") }),
+      execute: async ({ limit }) => {
+        try {
+          return await listLibrary(ctx(), { limit: limit ?? 30 });
+        } catch (e) {
+          return { error: e instanceof Error ? e.message : String(e) };
+        }
+      },
+    }),
+    listRecentSessions: tool({
+      description: "List recent active sessions — use when the user asks about sessions without giving an id.",
+      inputSchema: z.object({ limit: z.number().optional().describe("Max sessions (default 20).") }),
+      execute: async ({ limit }) => {
+        try {
+          return await listSessions(ctx(), { status: "active", limit: limit ?? 20 });
+        } catch (e) {
+          return { error: e instanceof Error ? e.message : String(e) };
+        }
+      },
+    }),
+  };
+}
+
 export class ChatBroker extends AIChatAgent<Env> {
   /** Docs metadata consumed by the in-app `/docs/agents` viewer. */
   static docsMetadata() {
@@ -216,15 +285,24 @@ export class ChatBroker extends AIChatAgent<Env> {
   async onChatMessage(onFinish: Parameters<AIChatAgent<Env>["onChatMessage"]>[0]) {
     const modelId = await this.resolveThreadModel();
 
+    // When this thread is a session-page chat (`session-chat-<uuid>`), tell the
+    // model which session the user is looking at so "this session" just works —
+    // no need for the user to paste the id.
+    const sessionUuid = this.sessionUuidFromName();
+    const system = sessionUuid
+      ? `${SYSTEM_PROMPT}\n\nCURRENT SESSION: the user is viewing session ${sessionUuid}. When they say "this session", "the current session", or ask why an edit here isn't working, call lookupSession / sessionInteractionLog with ${sessionUuid} directly — do not ask for the id.`
+      : SYSTEM_PROMPT;
+
     try {
       const result = streamText({
         model: getChatModel(this.env, modelId),
-        system: SYSTEM_PROMPT,
+        system,
         messages: await convertToModelMessages(this.messages as UIMessage[]),
         // Widen to `ToolSet` so `streamText` does not narrow the `onFinish`
         // generic to our concrete tool map (the base `onFinish` is typed against
-        // the generic `ToolSet`). Runtime behaviour is identical.
-        tools: CHAT_TOOLS as ToolSet,
+        // the generic `ToolSet`). Runtime behaviour is identical. Core data tools
+        // are merged in so the assistant can look up real sessions/library/logs.
+        tools: { ...CHAT_TOOLS, ...coreTools(this.env) } as ToolSet,
         stopWhen: stepCountIs(8),
         onFinish: async (event) => {
           // Persist the assistant turn first (SDK contract), then best-effort
@@ -255,6 +333,17 @@ export class ChatBroker extends AIChatAgent<Env> {
    * `chat_threads.model` (keyed by `this.name`). Returns `null` when unset or
    * unreadable, so `getChatModel` falls back to the env default.
    */
+  /**
+   * Extract the session uuid from a session-page chat thread name
+   * (`session-chat-<uuid>`). Returns null for the generic `/chat` thread, whose
+   * name is `session-<random-uuid>` (no `-chat-` segment) and must NOT be treated
+   * as a real session.
+   */
+  private sessionUuidFromName(): string | null {
+    const m = /^session-chat-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(this.name);
+    return m ? m[1] : null;
+  }
+
   private async resolveThreadModel(): Promise<string | null> {
     try {
       const db = getDb(this.env);
