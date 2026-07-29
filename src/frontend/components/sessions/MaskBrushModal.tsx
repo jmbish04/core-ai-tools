@@ -238,6 +238,35 @@ export function MaskBrushModal({
     };
   };
 
+  /**
+   * Export the painted region as a clean binary alpha mask PNG (white+opaque
+   * where painted, transparent elsewhere) — independent of the display color —
+   * and return raw base64 (no data: prefix). Null if nothing is painted.
+   */
+  const rasterizeMask = (): string | null => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return null;
+    const src = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const out = ctx.createImageData(canvas.width, canvas.height);
+    let painted = false;
+    for (let i = 0; i < src.data.length; i += 4) {
+      if (src.data[i + 3] > 10) {
+        out.data[i] = 255;
+        out.data[i + 1] = 255;
+        out.data[i + 2] = 255;
+        out.data[i + 3] = 255;
+        painted = true;
+      }
+    }
+    if (!painted) return null;
+    const tmp = document.createElement("canvas");
+    tmp.width = canvas.width;
+    tmp.height = canvas.height;
+    tmp.getContext("2d")?.putImageData(out, 0, 0);
+    return tmp.toDataURL("image/png").split(",")[1] ?? null;
+  };
+
   const handleSaveMask = async () => {
     setSaving(true);
     try {
@@ -245,6 +274,7 @@ export function MaskBrushModal({
       let geometryData: unknown = {};
       let coverageRatio = 0.1;
       let label: string | null = null;
+      let rasterPngBase64: string | null = null;
 
       if (tool === "semantic") {
         kind = "semantic";
@@ -255,7 +285,13 @@ export function MaskBrushModal({
         kind = "raster";
         geometryData = computed.geometry;
         coverageRatio = computed.coverageRatio;
-        label = `Mask ${kind} (${(coverageRatio * 100).toFixed(0)}% area)`;
+        rasterPngBase64 = rasterizeMask();
+        if (!rasterPngBase64) {
+          alert("Paint or draw a region first.");
+          setSaving(false);
+          return;
+        }
+        label = `Mask (${(coverageRatio * 100).toFixed(0)}% area)`;
       }
 
       const res = await apiSend<{ id: string; label: string | null }>("POST", "masks", {
@@ -264,6 +300,7 @@ export function MaskBrushModal({
         kind,
         geometry: geometryData,
         coverageRatio,
+        rasterPngBase64,
         label,
         derivedFromMaskId: derivedFromMaskId || null,
         state: "confirmed",
