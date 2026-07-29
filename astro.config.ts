@@ -2,7 +2,31 @@
 import cloudflare from "@astrojs/cloudflare";
 import react from "@astrojs/react";
 import tailwindcss from "@tailwindcss/vite";
+import { transform as esbuildTransform } from "esbuild";
 import { defineConfig, sessionDrivers } from "astro/config";
+
+/**
+ * Downlevel decorators before rolldown/oxc sees them. The agents SDK's
+ * Durable Objects use decorators (`@callable`); astro 7's oxc build leaves them
+ * native, and workerd's V8 rejects the syntax ("Invalid or unexpected token").
+ * esbuild transpiles them (as astro 5's build did). Scoped to project `.ts`
+ * files that actually use a decorator, so it's a no-op for everything else.
+ */
+const transpileDecorators = {
+  name: "transpile-decorators",
+  enforce: "pre" as const,
+  async transform(code: string, id: string) {
+    if (id.includes("node_modules") || !/\.ts(\?|$)/.test(id)) return null;
+    if (!/^\s*@[A-Za-z_]/m.test(code)) return null;
+    const out = await esbuildTransform(code, {
+      loader: "ts",
+      target: "es2022",
+      sourcemap: true,
+      sourcefile: id,
+    });
+    return { code: out.code, map: out.map };
+  },
+};
 
 const site = process.env.SITE ?? "http://localhost:4321";
 const base = process.env.BASE || "/";
@@ -44,6 +68,8 @@ export default defineConfig({
   integrations: [react()],
   vite: {
     plugins: [
+      // Downlevel decorators (agents SDK `@callable`) before oxc — see above.
+      transpileDecorators as unknown as import("vite").Plugin,
       // Cast through the Vite plugin type to work around the current
       // Vite/@tailwindcss-vite HotUpdateOptions mismatch without dropping
       // type information entirely.
