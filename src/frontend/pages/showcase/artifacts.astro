@@ -89,28 +89,28 @@ export function CodeRefinementView() {
   } = agent.state || {};
 
   return (
-    <div className="h-screen flex flex-col bg-zinc-950">
+    <div class="h-screen flex flex-col bg-zinc-950">
       {/* Header */}
-      <div className="p-4 flex justify-between items-center">
+      <div class="p-4 flex justify-between items-center">
         <div>
-          <h2 className="text-base font-bold text-white">
+          <h2 class="text-base font-bold text-white">
             Cloudflare Git Artifact: index.ts
           </h2>
-          <p className="text-zinc-400 text-xs mt-0.5">
+          <p class="text-zinc-400 text-xs mt-0.5">
             Commit:{" "}
-            <code className="text-orange-500">
+            <code class="text-orange-500">
               {lastCommitHash || "HEAD"}
             </code>
           </p>
           {lastCommitMessage && (
-            <p className="text-zinc-500 text-xs mt-1">
+            <p class="text-zinc-500 text-xs mt-1">
               {lastCommitMessage}
             </p>
           )}
         </div>
 
         {/* Actions */}
-        <div className="flex gap-2">
+        <div class="flex gap-2">
           <button onClick={() => agent.stub.getFileHistory("index.ts")}>
             View History
           </button>
@@ -121,7 +121,7 @@ export function CodeRefinementView() {
       </div>
 
       {/* Diff Viewer */}
-      <div className="flex-1 overflow-hidden">
+      <div class="flex-1 overflow-hidden">
         {originalCode && updatedCode ? (
           <DiffEditor
             original={originalCode}
@@ -131,8 +131,8 @@ export function CodeRefinementView() {
             options={{ readOnly: true, renderSideBySide: true }}
           />
         ) : (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-zinc-500 text-sm">No changes to display</p>
+          <div class="flex items-center justify-center h-full">
+            <p class="text-zinc-500 text-sm">No changes to display</p>
           </div>
         )}
       </div>
