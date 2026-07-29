@@ -53,7 +53,7 @@ export async function uploadImageBytes(
  * Chunked base64 encoder — avoids `String.fromCharCode(...hugeArray)` blowing the
  * call-stack argument limit on multi-MB images.
  */
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
+export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   const CHUNK = 0x8000;
   let binary = "";

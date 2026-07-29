@@ -10,12 +10,12 @@
  * when awaiting approval; `mask_preview_url` when a mask is used.
  */
 
-import { and, eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
-import { libraryImages, masks } from "@/backend/db/schema";
+import { masks } from "@/backend/db/schema";
 import type { Revision } from "@/backend/db/schema";
 import type { CoreContext } from "@/backend/core";
-import { variantUrls } from "@/backend/core";
+import { resolveImageUrls } from "./serialize";
 
 export interface McpEditPayload {
   revision_id: string;
@@ -45,24 +45,11 @@ export async function buildMcpEditPayload(
   const base = `https://${host}`;
   const appUrl = `${base}/sessions/${revision.sessionUuid}?revision=${revision.id}`;
 
-  let imageUrl: string | null = null;
-  let thumbUrl: string | null = null;
-  if (revision.outputImageId) {
-    const [out] = await ctx.db
-      .select({ cfImageId: libraryImages.cfImageId, mediaType: libraryImages.mediaType, deliveryUrl: libraryImages.deliveryUrl })
-      .from(libraryImages)
-      .where(and(eq(libraryImages.id, revision.outputImageId), isNull(libraryImages.deletedAt)))
-      .limit(1);
-    if (out) {
-      if (out.mediaType === "video") {
-        imageUrl = `${base}${out.deliveryUrl}`; // worker video route
-      } else if (out.cfImageId) {
-        const urls = await variantUrls(ctx.env, out.cfImageId);
-        imageUrl = urls.full;
-        thumbUrl = urls.thumb;
-      }
-    }
-  }
+  const urls = revision.outputImageId
+    ? (await resolveImageUrls(ctx, [revision.outputImageId], base)).get(revision.outputImageId)
+    : undefined;
+  const imageUrl = urls?.imageUrl ?? null;
+  const thumbUrl = urls?.thumbUrl ?? null;
 
   const payload: McpEditPayload = {
     revision_id: revision.id,

@@ -1,0 +1,212 @@
+/**
+ * @fileoverview MCP serialization: attach resolvable image URLs to every image
+ * reference an MCP response carries, and produce MCP `image` content blocks for
+ * the vision tools. One URL-construction point (`urlsFromRow`) feeds every
+ * serializer — no per-endpoint ad-hoc URL building.
+ *
+ * URLs are PUBLIC Cloudflare Images delivery URLs (the account's images are the
+ * user's home photos / design concepts — public links are acceptable here). If
+ * that ever changes, swap `urlsFromRow` to sign the URLs and every serializer
+ * follows.
+ */
+
+import { inArray } from "drizzle-orm";
+
+import { libraryImages } from "@/backend/db/schema";
+import type { LibraryImage, Revision, Session } from "@/backend/db/schema";
+import {
+  arrayBufferToBase64,
+  buildVariantUrl,
+  IMAGE_VARIANTS,
+  requireImage,
+  requireRevision,
+  variantUrl,
+} from "@/backend/core";
+import type { CoreContext, RevisionTreeNode, SessionTree } from "@/backend/core";
+import { getImagesAccountHash } from "@/backend/utils/secrets";
+
+export interface ImageUrls {
+  /** ~512px variant for quick inspection (null for video). */
+  thumbUrl: string | null;
+  /** Full-size delivery URL. */
+  imageUrl: string | null;
+}
+
+const EMPTY: ImageUrls = { thumbUrl: null, imageUrl: null };
+
+type UrlRow = Pick<LibraryImage, "cfImageId" | "mediaType" | "deliveryUrl">;
+
+/**
+ * THE single URL-construction point. Images resolve to thumb+full CF Images
+ * variants; video resolves to its (absolutised) worker delivery route.
+ */
+function urlsFromRow(hash: string, base: string, row: UrlRow): ImageUrls {
+  if (row.mediaType === "video") {
+    const u = row.deliveryUrl
+      ? row.deliveryUrl.startsWith("http")
+        ? row.deliveryUrl
+        : `${base}${row.deliveryUrl}`
+      : null;
+    return { thumbUrl: null, imageUrl: u };
+  }
+  if (!row.cfImageId) return EMPTY;
+  return {
+    thumbUrl: buildVariantUrl(hash, row.cfImageId, IMAGE_VARIANTS.THUMB),
+    imageUrl: buildVariantUrl(hash, row.cfImageId, IMAGE_VARIANTS.FULL),
+  };
+}
+
+/**
+ * Batch-resolve a set of library-image ids to their URLs. One D1 read + one
+ * account-hash lookup. A missing account hash degrades to empty URLs rather than
+ * throwing — a read (e.g. get_session_tree) must still return its structure.
+ */
+export async function resolveImageUrls(
+  ctx: CoreContext,
+  ids: Array<string | null | undefined>,
+  base: string,
+): Promise<Map<string, ImageUrls>> {
+  const uniq = [...new Set(ids.filter((x): x is string => !!x))];
+  const map = new Map<string, ImageUrls>();
+  if (uniq.length === 0) return map;
+
+  const rows = await ctx.db
+    .select({
+      id: libraryImages.id,
+      cfImageId: libraryImages.cfImageId,
+      mediaType: libraryImages.mediaType,
+      deliveryUrl: libraryImages.deliveryUrl,
+    })
+    .from(libraryImages)
+    .where(inArray(libraryImages.id, uniq));
+
+  const hash = await getImagesAccountHash(ctx.env);
+  for (const r of rows) map.set(r.id, hash ? urlsFromRow(hash, base, r) : EMPTY);
+  return map;
+}
+
+/** reference_image_ids live inside a revision's editPayload (multi-image edits). */
+function refIds(rev: Revision): string[] {
+  const p = rev.editPayload as { reference_image_ids?: unknown } | null;
+  return Array.isArray(p?.reference_image_ids)
+    ? (p!.reference_image_ids.filter((x) => typeof x === "string") as string[])
+    : [];
+}
+
+/**
+ * Decorate the session tree so every image id (seed, each attempt's input +
+ * output, and any multi-image reference set) carries `thumbUrl`/`imageUrl`.
+ */
+export async function serializeSessionTree(
+  ctx: CoreContext,
+  tree: SessionTree,
+  base: string,
+): Promise<unknown> {
+  const ids: Array<string | null> = [];
+  for (const n of tree.nodes)
+    for (const a of n.attempts) {
+      ids.push(a.inputImageId, a.outputImageId, ...refIds(a));
+    }
+  const map = await resolveImageUrls(ctx, ids, base);
+
+  const decorate = (r: Revision) => ({
+    ...r,
+    inputImageUrls: (r.inputImageId && map.get(r.inputImageId)) || EMPTY,
+    outputImageUrls: (r.outputImageId && map.get(r.outputImageId)) || EMPTY,
+    referenceImageUrls: refIds(r).map((id) => ({ imageId: id, ...(map.get(id) ?? EMPTY) })),
+  });
+  const node = (n: RevisionTreeNode): unknown => ({
+    ...n,
+    attempts: n.attempts.map(decorate),
+    latest: decorate(n.latest),
+    children: n.children.map(node),
+  });
+
+  return {
+    sessionUuid: tree.sessionUuid,
+    root: tree.root ? node(tree.root) : null,
+    nodes: tree.nodes.map(node),
+  };
+}
+
+/** Attach the origin image's URLs to each session row. */
+export async function serializeSessions(
+  ctx: CoreContext,
+  rows: Session[],
+  base: string,
+): Promise<unknown[]> {
+  const map = await resolveImageUrls(ctx, rows.map((s) => s.originLibraryImageId), base);
+  return rows.map((s) => ({
+    ...s,
+    originImageUrls: (s.originLibraryImageId && map.get(s.originLibraryImageId)) || EMPTY,
+  }));
+}
+
+/** Attach thumb/full URLs to each library image row (rows already in hand). */
+export async function serializeLibrary(
+  ctx: CoreContext,
+  rows: LibraryImage[],
+  base: string,
+): Promise<unknown[]> {
+  const hash = await getImagesAccountHash(ctx.env);
+  return rows.map((r) => ({ ...r, ...(hash ? urlsFromRow(hash, base, r) : EMPTY) }));
+}
+
+// ---------------------------------------------------------------------------
+// Part 2: inline image content for MCP vision
+// ---------------------------------------------------------------------------
+
+export interface McpImageBlock {
+  type: "image";
+  data: string;
+  mimeType: string;
+}
+
+/** Raw-byte cap so a response never blows the MCP message limit. base64 ≈ +33%. */
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Fetch a library image's bytes (the resized variant, thumb by default),
+ * base64-encode, and return an MCP `image` content block. Fetches the public
+ * variant URL server-side so the client gets pixels it can actually render.
+ */
+export async function imageContentBlock(
+  ctx: CoreContext,
+  imageId: string,
+  variant: "thumb" | "full",
+): Promise<McpImageBlock> {
+  const row = await requireImage(ctx, imageId);
+  if (row.mediaType === "video") {
+    throw new Error(`Asset ${imageId} is a video; these tools return still images only.`);
+  }
+  if (!row.cfImageId) throw new Error(`Image ${imageId} has no Cloudflare Images id.`);
+
+  const v = variant === "full" ? IMAGE_VARIANTS.FULL : IMAGE_VARIANTS.THUMB;
+  const url = await variantUrl(ctx.env, row.cfImageId, v);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch ${v} variant for image ${imageId} (HTTP ${res.status}).`);
+
+  const buf = await res.arrayBuffer();
+  if (buf.byteLength > MAX_IMAGE_BYTES) {
+    throw new Error(
+      `Image ${v} variant is ${(buf.byteLength / 1e6).toFixed(1)}MB, over the ${MAX_IMAGE_BYTES / 1e6}MB MCP cap. Use variant:"thumb".`,
+    );
+  }
+  const mimeType = res.headers.get("content-type")?.split(";")[0] || row.contentType || "image/png";
+  return { type: "image", data: arrayBufferToBase64(buf), mimeType };
+}
+
+/** Resolve a revision's input/output image id and return its content block. */
+export async function revisionImageBlock(
+  ctx: CoreContext,
+  revisionId: string,
+  which: "output" | "input",
+  variant: "thumb" | "full",
+): Promise<McpImageBlock> {
+  const rev = await requireRevision(ctx, revisionId);
+  const imageId = which === "input" ? rev.inputImageId : rev.outputImageId;
+  if (!imageId) {
+    throw new Error(`Revision ${rev.id} has no ${which} image (status=${rev.status}).`);
+  }
+  return imageContentBlock(ctx, imageId, variant);
+}
