@@ -15,6 +15,35 @@ const ok = {
   422: { description: "model did not return valid JSON", content: jsonAny },
 };
 
+/** Pull the assistant text out of a Workers AI result across model shapes. */
+function extractText(raw: unknown): string {
+  if (typeof raw === "string") return raw;
+  const r = raw as Record<string, any>;
+  if (!r || typeof r !== "object") return "";
+  if (typeof r.response === "string") return r.response;
+  if (typeof r.output_text === "string") return r.output_text;
+  // OpenAI chat-completions shape.
+  const choice = r.choices?.[0]?.message?.content;
+  if (typeof choice === "string") return choice;
+  // gpt-oss "responses" API: output: [{ type, content: [{ type, text }] }].
+  if (Array.isArray(r.output)) {
+    const parts: string[] = [];
+    for (const item of r.output) {
+      const content = item?.content;
+      if (typeof content === "string") parts.push(content);
+      else if (Array.isArray(content)) {
+        for (const c of content) if (typeof c?.text === "string") parts.push(c.text);
+      }
+    }
+    if (parts.length) return parts.join("");
+  }
+  // Nested { response: { response } } and similar.
+  if (r.response && typeof r.response === "object" && typeof r.response.response === "string") {
+    return r.response.response;
+  }
+  return "";
+}
+
 /** Strip markdown code fences and grab the outermost JSON object/array. */
 function extractJson(text: string): string {
   let t = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```$/i, "").trim();
@@ -45,27 +74,28 @@ aiRouter.openapi(
       (instruction?.trim() ? `Instruction: ${instruction.trim()}\n\n` : "") +
       "Return the improved JSON only.";
 
-    // env.AI.run text-generation. Response shape varies by model; coerce to text.
+    // env.AI.run text-generation. Ask for a JSON object; response shape varies by
+    // model (plain `.response`, OpenAI chat `.choices`, or the gpt-oss "responses"
+    // API `.output[].content[].text`), so extract defensively.
     const raw = (await c.env.AI.run(model as never, {
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
       ],
+      response_format: { type: "json_object" },
     } as never)) as unknown;
-    const text =
-      typeof raw === "string"
-        ? raw
-        : ((raw as { response?: string; output_text?: string })?.response ??
-          (raw as { output_text?: string })?.output_text ??
-          "");
 
-    const formatted = extractJson(String(text));
+    const text = extractText(raw);
+    const formatted = extractJson(text);
     // Validate before returning so the client always gets parseable JSON (or a 422).
     try {
       JSON.parse(formatted);
     } catch {
       return c.json(
-        { error: "The model did not return valid JSON. Try again or adjust your instruction.", raw: String(text).slice(0, 1000) },
+        {
+          error: "The model did not return valid JSON. Try again or adjust your instruction.",
+          raw: (text || JSON.stringify(raw)).slice(0, 2000),
+        },
         422,
       );
     }
