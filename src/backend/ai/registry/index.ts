@@ -48,6 +48,10 @@ export function modelsWithCapability(cap: keyof ModelCapabilities): ModelEntry[]
 export interface CapabilityRequirement {
   mask_inpainting?: boolean;
   multi_reference_count?: number;
+  /** Reference images tagged role='object' — capped by max_object_refs. */
+  object_ref_count?: number;
+  /** Reference images tagged role='style' — capped by max_style_refs. */
+  style_ref_count?: number;
   grounding_web?: boolean;
   grounding_image_search?: boolean;
   video_generation?: boolean;
@@ -77,6 +81,8 @@ export function modelSatisfies(model: ModelEntry, req: CapabilityRequirement): b
   if (req.video_generation && !c.video_generation) return false;
   if (req.segmentation && !c.segmentation) return false;
   if (req.multi_reference_count && req.multi_reference_count > c.max_reference_images) return false;
+  if (req.object_ref_count && req.object_ref_count > c.max_object_refs) return false;
+  if (req.style_ref_count && req.style_ref_count > c.max_style_refs) return false;
   if (req.resolution && RESOLUTION_RANK[req.resolution] > RESOLUTION_RANK[c.max_resolution]) return false;
   if (req.aspect_ratio && !c.supported_aspect_ratios.includes(req.aspect_ratio)) return false;
   return true;

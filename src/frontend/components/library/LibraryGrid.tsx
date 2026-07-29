@@ -57,6 +57,8 @@ interface LibraryImage {
   createdAt?: string;
   width?: number | null;
   height?: number | null;
+  flaggedBadAt?: string | number | null;
+  badNotes?: string | null;
 }
 
 interface LibraryFolder {
@@ -89,6 +91,8 @@ interface Tile {
   file?: File;
   size?: number;
   createdAt?: string;
+  flaggedBadAt?: string | number | null;
+  badNotes?: string | null;
 }
 
 interface UploadIntent {
@@ -107,6 +111,8 @@ function tileFromImage(img: LibraryImage): Tile {
     previewUrl: variant(img.deliveryUrl, "preview"),
     size: img.bytes ?? undefined,
     createdAt: img.createdAt,
+    flaggedBadAt: img.flaggedBadAt ?? null,
+    badNotes: img.badNotes ?? null,
   };
 }
 
@@ -156,6 +162,7 @@ export function LibraryGrid() {
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const [sessionName, setSessionName] = useState("");
+  const [badNotesDraft, setBadNotesDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const seq = useRef(0);
 
@@ -193,6 +200,7 @@ export function LibraryGrid() {
       return;
     }
     setLoadingSessions(true);
+    setBadNotesDraft(detailTile.badNotes ?? "");
     apiGet<{ sessions: Session[] }>("sessions", { forImage: detailTile.id })
       .then((r) => setDetailSessions(r.sessions ?? []))
       .catch(() => setDetailSessions([]))
@@ -279,6 +287,32 @@ export function LibraryGrid() {
       loadData();
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed to delete images");
+    }
+  };
+
+  // Mark bad / undo — a flagged image stays live and listable, just visibly
+  // ignored (dimmed + badged). The notes explain why. Updates both the grid tile
+  // and the open detail drawer.
+  const applyFlag = (id: string, flaggedBadAt: string | number | null, badNotes: string | null) => {
+    patch(id, { flaggedBadAt, badNotes });
+    setDetailTile((d) => (d && d.id === id ? { ...d, flaggedBadAt, badNotes } : d));
+  };
+  const markBad = async (id: string, notes: string) => {
+    try {
+      const row = await apiSend<LibraryImage>("POST", `library/images/${id}/flag-bad`, {
+        notes: notes.trim() || null,
+      });
+      applyFlag(id, row.flaggedBadAt ?? Date.now(), row.badNotes ?? (notes.trim() || null));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to mark image bad");
+    }
+  };
+  const unmarkBad = async (id: string) => {
+    try {
+      await apiSend("POST", `library/images/${id}/unflag-bad`, {});
+      applyFlag(id, null, null);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to undo");
     }
   };
 
@@ -570,9 +604,19 @@ export function LibraryGrid() {
                           <img
                             src={tile.thumbUrl || tile.previewUrl}
                             alt={tile.name}
-                            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                            className={`h-full w-full object-cover transition-transform duration-300 group-hover:scale-105 ${
+                              tile.flaggedBadAt ? "opacity-35 grayscale" : ""
+                            }`}
                             loading="lazy"
                           />
+                          {tile.flaggedBadAt && (
+                            <span
+                              className="absolute right-2.5 top-2.5 rounded bg-destructive px-1.5 py-0.5 text-[10px] font-mono font-semibold uppercase text-destructive-foreground"
+                              title={tile.badNotes ?? "Flagged bad"}
+                            >
+                              Bad
+                            </span>
+                          )}
                           <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20 opacity-0 transition-opacity group-hover:opacity-100" />
                           
                           {/* Selection Checkbox */}
@@ -677,6 +721,46 @@ export function LibraryGrid() {
                     )}
                     Start New Session From Photo
                   </Button>
+                </div>
+              )}
+
+              {/* Mark bad / undo */}
+              {detailTile.id && (
+                <div className="space-y-2 pt-2 border-t border-border/40">
+                  <label className="font-mono text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                    <AlertCircle className="h-3.5 w-3.5" /> Image Quality
+                  </label>
+                  {detailTile.flaggedBadAt ? (
+                    <div className="space-y-2">
+                      <div className="rounded-lg bg-destructive/15 p-3 text-xs text-destructive ring-1 ring-destructive/30">
+                        <span className="font-mono font-semibold">Flagged bad.</span>
+                        {detailTile.badNotes && <p className="mt-1 text-destructive/90">{detailTile.badNotes}</p>}
+                      </div>
+                      <Button
+                        variant="outline"
+                        onClick={() => unmarkBad(detailTile.id!)}
+                        className="w-full gap-2 ring-1 ring-border/40 text-xs"
+                      >
+                        Undo — mark as good
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Input
+                        value={badNotesDraft}
+                        onChange={(e) => setBadNotesDraft(e.target.value)}
+                        placeholder="Why is this image bad? (optional)"
+                        className="bg-background ring-1 ring-border/40 text-sm"
+                      />
+                      <Button
+                        variant="outline"
+                        onClick={() => markBad(detailTile.id!, badNotesDraft)}
+                        className="w-full gap-2 ring-1 ring-destructive/40 text-xs text-destructive hover:bg-destructive/10"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> Mark image bad
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )}
 

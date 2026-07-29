@@ -18,16 +18,18 @@
 import { dispatch } from "@/backend/ai/dispatch";
 import { resolveModelId, requireModel } from "@/backend/ai/registry";
 import type { CoreContext } from "../context";
-import { fetchImageBase64 } from "../images";
+import { fetchImageBase64, uploadImageBytes } from "../images";
 import { createMask } from "./masks";
 import type { Mask } from "@/backend/db/schema";
-import { polygon1000To01, polygonCoverageRatio, type NormalizedPolygon } from "./geometry";
+import { box2dTo01, bboxCoverageRatio } from "./geometry";
+import { rasterizeMaskPng, type BboxGeometry } from "./rasterize";
 import { requireImage } from "../library/images";
 
 /** One candidate returned by the segmentation model (already converted to 0–1). */
 export interface SegmentCandidate {
   label: string;
-  polygon: NormalizedPolygon;
+  /** The detected region as a normalised 0–1 bounding box. */
+  bbox: BboxGeometry;
   coverageRatio: number;
   confidence?: number;
 }
@@ -61,7 +63,17 @@ export async function createSemanticMask(
   const model = requireModel(modelId);
   const inputImageBase64 = await fetchImageBase64(ctx.env, image.cfImageId);
 
-  // Deferred-live: the segmentation call returns raw 0–1000 candidates.
+  // The model only emits structured segmentation when the prompt DEMANDS JSON;
+  // a bare description ("shower head") returns prose, the understand adapter sees
+  // no leading { or [, structured stays undefined, and we'd throw "no regions".
+  // Ask for Gemini's documented segmentation shape: a JSON array of
+  // { box_2d: [ymin,xmin,ymax,xmax] (0–1000), label }.
+  const segmentationPrompt =
+    `Segment the following region(s) in this image: ${input.description}. ` +
+    `Output ONLY a JSON array. Each element is an object with "box_2d" as ` +
+    `[ymin, xmin, ymax, xmax] normalised 0–1000, and "label" as a short string. ` +
+    `Return the most relevant region first. If nothing matches, return [].`;
+
   const out = await dispatch({
     env: ctx.env,
     db: ctx.db,
@@ -69,7 +81,7 @@ export async function createSemanticMask(
     model,
     request: {
       model,
-      prompt: input.description,
+      prompt: segmentationPrompt,
       inputImageBase64,
       thinkingLevel: "minimal",
     },
@@ -80,21 +92,22 @@ export async function createSemanticMask(
     },
   });
 
-  // Parse structured candidates (0–1000) → convert → rank by nothing special,
-  // taking the model's first as best (it returns most-confident first).
-  const raw = (out.structured ?? []) as Array<{
-    label?: string;
-    mask?: Array<{ x: number; y: number }>;
-    confidence?: number;
-  }>;
+  // Gemini returns [{ box_2d:[ymin,xmin,ymax,xmax], mask?:<png>, label }]. We use
+  // box_2d (the bounding rectangle) — a working, honoured region. The per-object
+  // `mask` PNG is a crop within the box; compositing it full-frame is the upgrade
+  // path. ponytail: box_2d bbox is the lazy-correct v1; fine mask later if needed.
+  const structured = out.structured;
+  const raw = Array.isArray(structured)
+    ? (structured as Array<{ label?: string; box_2d?: number[]; confidence?: number }>)
+    : [];
   const candidates: SegmentCandidate[] = raw
-    .filter((r) => Array.isArray(r.mask))
+    .filter((r) => Array.isArray(r.box_2d) && r.box_2d.length === 4)
     .map((r) => {
-      const polygon = polygon1000To01(r.mask!);
+      const bbox = box2dTo01(r.box_2d as [number, number, number, number]);
       return {
         label: r.label ?? input.description,
-        polygon,
-        coverageRatio: polygonCoverageRatio(polygon),
+        bbox,
+        coverageRatio: bboxCoverageRatio(bbox),
         confidence: r.confidence,
       };
     });
@@ -103,12 +116,26 @@ export async function createSemanticMask(
     throw new Error(`Segmentation returned no regions for "${input.description}".`);
   }
 
+  // Rasterise the best region to the provider-consumable PNG so the semantic
+  // mask actually reaches the model (without a cf_image_id it does nothing).
   const [best, ...alternatives] = candidates;
+  const png = await rasterizeMaskPng({
+    kind: "bbox",
+    geometry: best.bbox,
+    sourceWidth: image.width,
+    sourceHeight: image.height,
+  });
+  const up = await uploadImageBytes(ctx.env, png, {
+    filename: `mask-semantic-${input.sourceImageId}.png`,
+    metadata: { kind: "mask", semantic: input.description },
+  });
+
   const mask = await createMask(ctx, {
     sessionUuid: input.sessionUuid ?? null,
     sourceImageId: input.sourceImageId,
     kind: "semantic",
-    geometry: best.polygon,
+    geometry: best.bbox,
+    cfImageId: up.cfImageId,
     label: best.label,
     coverageRatio: best.coverageRatio,
     state: "proposed",

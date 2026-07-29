@@ -9,10 +9,13 @@ import {
   createCoreContext,
   createFolder,
   createUploadIntent,
+  flagImageBad,
   listFolders,
   listLibrary,
   moveImage,
+  registerImageFromSource,
   softDeleteImage,
+  unflagImageBad,
 } from "@/backend/core";
 
 export const libraryRouter = new OpenAPIHono<{ Bindings: Env }>();
@@ -98,4 +101,44 @@ libraryRouter.openapi(
 libraryRouter.openapi(
   createRoute({ method: "delete", path: "/api/library/images/{id}", tags: ["library"], request: { params: idParam }, responses: ok }),
   async (c) => c.json(await softDeleteImage(createCoreContext(c.env), c.req.valid("param").id)),
+);
+
+// Register an image from a URL or base64 → a library id (reference on-ramp).
+libraryRouter.openapi(
+  createRoute({
+    method: "post",
+    path: "/api/library/register",
+    tags: ["library"],
+    request: {
+      body: jsonBody(
+        z.object({
+          cfImagesUrl: z.string().optional(),
+          imageUrl: z.string().optional(),
+          base64: z.string().optional(),
+          description: z.string().nullish(),
+          folderId: z.string().nullish(),
+        }),
+      ),
+    },
+    responses: ok,
+  }),
+  async (c) => c.json(await registerImageFromSource(createCoreContext(c.env), { ...c.req.valid("json"), uploadedVia: "ui" })),
+);
+
+// Mark an image bad (with an optional reason) — ignored for editing, reversible.
+libraryRouter.openapi(
+  createRoute({
+    method: "post",
+    path: "/api/library/images/{id}/flag-bad",
+    tags: ["library"],
+    request: { params: idParam, body: jsonBody(z.object({ notes: z.string().nullish() })) },
+    responses: ok,
+  }),
+  async (c) => c.json(await flagImageBad(createCoreContext(c.env), c.req.valid("param").id, c.req.valid("json").notes)),
+);
+
+// Undo a bad flag.
+libraryRouter.openapi(
+  createRoute({ method: "post", path: "/api/library/images/{id}/unflag-bad", tags: ["library"], request: { params: idParam }, responses: ok }),
+  async (c) => c.json(await unflagImageBad(createCoreContext(c.env), c.req.valid("param").id)),
 );

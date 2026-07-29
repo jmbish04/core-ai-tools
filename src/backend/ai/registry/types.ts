@@ -41,8 +41,12 @@ export interface ModelCapabilities {
   interleaved_output: boolean;
   video_generation: boolean;
   segmentation: boolean;
-  /** 0 = no reference images accepted. */
+  /** 0 = no reference images accepted. Total additional refs beyond the base image. */
   max_reference_images: number;
+  /** Max reference images tagged role='object' (a subject/material to reproduce). */
+  max_object_refs: number;
+  /** Max reference images tagged role='style' (a look/palette to emulate). */
+  max_style_refs: number;
   max_resolution: Resolution;
   supported_aspect_ratios: string[];
   /** Approx USD per image, or null (guardian auto-prices). */

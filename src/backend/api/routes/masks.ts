@@ -3,7 +3,14 @@
  */
 
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { createCoreContext, createMask, listMasks, uploadImageBytes } from "@/backend/core";
+import {
+  createCoreContext,
+  createMask,
+  createSemanticMask,
+  listMasks,
+  rasterizeAndUploadMask,
+  uploadImageBytes,
+} from "@/backend/core";
 
 /** Decode a base64 PNG (no data: prefix) to an ArrayBuffer. */
 function b64ToBytes(b64: string): ArrayBuffer {
@@ -35,6 +42,8 @@ masksRouter.openapi(
               /** Base64 PNG (no data: prefix) of a painted raster mask; uploaded
                * to CF Images server-side and stored as the mask's cf_image_id. */
               rasterPngBase64: z.string().nullish(),
+              /** kind='semantic': the natural-language region to segment. */
+              description: z.string().nullish(),
               featherPx: z.number().optional(),
               label: z.string().nullish(),
               coverageRatio: z.number().nullish(),
@@ -48,22 +57,44 @@ masksRouter.openapi(
     responses: ok,
   }),
   async (c) => {
-    const { rasterPngBase64, ...body } = c.req.valid("json");
+    const { rasterPngBase64, description, ...body } = c.req.valid("json");
+    const ctx = createCoreContext(c.env);
+
+    // Semantic: run the segmentation pass (not just store a label) so a UI-drawn
+    // "region by description" produces a mask with real pixels the provider honours.
+    if (body.kind === "semantic") {
+      const query =
+        description ?? body.label ?? (body.geometry as { query?: string } | null)?.query ?? "";
+      const { mask } = await createSemanticMask(ctx, {
+        sessionUuid: body.sessionUuid ?? null,
+        sourceImageId: body.sourceImageId,
+        description: query,
+        createdVia: "ui",
+      });
+      return c.json(mask);
+    }
+
     // A painted raster mask: upload the PNG to CF Images and store its id so the
     // mask captures exact pixels (circle/freeform), not just a bounding box.
     let cfImageId = body.cfImageId ?? null;
+    let coverageRatio = body.coverageRatio ?? undefined;
     if (rasterPngBase64) {
       const up = await uploadImageBytes(c.env, b64ToBytes(rasterPngBase64), {
         filename: `mask-${body.sourceImageId}.png`,
         metadata: { kind: "mask" },
       });
       cfImageId = up.cfImageId;
+    } else if (!cfImageId && (body.kind === "bbox" || body.kind === "polygon")) {
+      // Geometric mask with no PNG — rasterise it so it reaches the provider.
+      const r = await rasterizeAndUploadMask(ctx, {
+        kind: body.kind,
+        geometry: body.geometry,
+        sourceImageId: body.sourceImageId,
+      });
+      cfImageId = r.cfImageId;
+      coverageRatio = coverageRatio ?? r.coverageRatio;
     }
-    const mask = await createMask(createCoreContext(c.env), {
-      ...body,
-      cfImageId,
-      createdVia: "ui",
-    });
+    const mask = await createMask(ctx, { ...body, cfImageId, coverageRatio, createdVia: "ui" });
     return c.json(mask);
   },
 );

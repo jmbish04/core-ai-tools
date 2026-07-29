@@ -28,6 +28,8 @@ export interface RegisterImageInput {
   deliveryUrl: string;
   folderId?: string | null;
   originalFilename?: string | null;
+  /** Optional caption / provenance (e.g. a material name); doubles as reference context. */
+  description?: string | null;
   contentType?: string | null;
   width?: number | null;
   height?: number | null;
@@ -55,6 +57,7 @@ export async function registerImage(
       deliveryUrl: input.deliveryUrl,
       folderId: input.folderId ?? null,
       originalFilename: input.originalFilename ?? null,
+      description: input.description ?? null,
       contentType: input.contentType ?? null,
       width: input.width ?? null,
       height: input.height ?? null,
@@ -115,6 +118,36 @@ export async function softDeleteImage(ctx: CoreContext, imageId: string): Promis
   const [row] = await ctx.db
     .update(libraryImages)
     .set({ deletedAt: new Date() })
+    .where(eq(libraryImages.id, imageId))
+    .returning();
+  return row;
+}
+
+/**
+ * Flag an image as bad (with an optional reason) so it's visibly ignored. This
+ * is distinct from soft-delete: the row stays live and listable, just marked.
+ * Idempotent — re-flagging updates the notes.
+ */
+export async function flagImageBad(
+  ctx: CoreContext,
+  imageId: string,
+  notes?: string | null,
+): Promise<LibraryImage> {
+  await requireImage(ctx, imageId);
+  const [row] = await ctx.db
+    .update(libraryImages)
+    .set({ flaggedBadAt: new Date(), badNotes: notes ?? null })
+    .where(eq(libraryImages.id, imageId))
+    .returning();
+  return row;
+}
+
+/** Undo a bad flag — clears the marker and its notes. Idempotent. */
+export async function unflagImageBad(ctx: CoreContext, imageId: string): Promise<LibraryImage> {
+  await requireImage(ctx, imageId);
+  const [row] = await ctx.db
+    .update(libraryImages)
+    .set({ flaggedBadAt: null, badNotes: null })
     .where(eq(libraryImages.id, imageId))
     .returning();
   return row;

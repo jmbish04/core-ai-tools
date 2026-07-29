@@ -30,6 +30,10 @@ const EditFields = {
   provider: z.string().nullish(),
   maskId: z.string().nullish(),
   maskMode: z.enum(["none", "inpaint", "preserve"]).optional(),
+  /** Additional role-tagged reference images (beyond the base). */
+  references: z
+    .array(z.object({ imageId: z.string(), role: z.enum(["base", "object", "style"]) }))
+    .optional(),
   idempotencyKey: z.string().nullish(),
   createdVia: z.enum(["ui", "api", "mcp"]).optional(),
 };

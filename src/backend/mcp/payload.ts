@@ -15,6 +15,7 @@ import { eq } from "drizzle-orm";
 import { masks } from "@/backend/db/schema";
 import type { Revision } from "@/backend/db/schema";
 import type { CoreContext } from "@/backend/core";
+import { listSessionReferences } from "@/backend/core";
 import { resolveImageUrls } from "./serialize";
 
 export interface McpEditPayload {
@@ -31,6 +32,13 @@ export interface McpEditPayload {
   attempt_number: number;
   approval_url?: string;
   mask_preview_url?: string;
+  /** Additional reference images fed to this edit (ordered base → object → style). */
+  references?: Array<{
+    image_id: string;
+    role: "base" | "object" | "style" | null;
+    image_url: string | null;
+    thumb_url: string | null;
+  }>;
 }
 
 /**
@@ -64,6 +72,25 @@ export async function buildMcpEditPayload(
     mask_id: revision.maskId,
     attempt_number: revision.attemptNumber,
   };
+
+  // Reference images used by this edit (ids recorded on the revision; roles from
+  // the session pool). Surfaced so the caller can confirm what was fed in.
+  const p = revision.editPayload as { reference_image_ids?: unknown } | null;
+  const refIds = Array.isArray(p?.reference_image_ids)
+    ? (p!.reference_image_ids.filter((x) => typeof x === "string") as string[])
+    : [];
+  if (refIds.length > 0) {
+    const refUrls = await resolveImageUrls(ctx, refIds, base);
+    const roleMap = new Map(
+      (await listSessionReferences(ctx, revision.sessionUuid)).map((r) => [r.image.id, r.role]),
+    );
+    payload.references = refIds.map((id) => ({
+      image_id: id,
+      role: roleMap.get(id) ?? null,
+      image_url: refUrls.get(id)?.imageUrl ?? null,
+      thumb_url: refUrls.get(id)?.thumbUrl ?? null,
+    }));
+  }
 
   if (revision.status === "awaiting_approval") {
     payload.approval_url = `${appUrl}&approve=1`;

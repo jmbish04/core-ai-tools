@@ -29,6 +29,9 @@ export const LIBRARY_IMAGES_COLUMN_DESCRIPTIONS: Record<string, string> = {
   delivery_url: "Base Cloudflare Images delivery URL for this image.",
   folder_id: "FK into library_folders.id — null means the image sits at library root.",
   original_filename: "Filename as supplied at upload time.",
+  description: "Optional caption / provenance note supplied at ingest (e.g. a material name). Also used as reference-image context.",
+  flagged_bad_at: "Unix timestamp (seconds) when the image was flagged as bad, or null if good. A flagged image is dimmed in the grid and should be ignored for editing.",
+  bad_notes: "Why the image was flagged bad (free text), or null.",
   content_type: "MIME type of the original upload (e.g. image/png).",
   width: "Pixel width of the original image.",
   height: "Pixel height of the original image.",
@@ -56,6 +59,12 @@ export const libraryImages = sqliteTable(
       onDelete: "set null",
     }),
     originalFilename: text("original_filename"),
+    /** Optional caption / provenance (material name, etc.); doubles as reference-image context. */
+    description: text("description"),
+    /** Non-null = flagged bad (ignore for editing); the value is when it was flagged. Undo sets it null. */
+    flaggedBadAt: integer("flagged_bad_at", { mode: "timestamp" }),
+    /** Why it was flagged bad, or null. */
+    badNotes: text("bad_notes"),
     contentType: text("content_type"),
     width: integer("width"),
     height: integer("height"),

@@ -19,12 +19,14 @@ import { and, desc, eq } from "drizzle-orm";
 
 import { masks, revisions, sessions } from "@/backend/db/schema";
 import type { Mask, Revision, Session } from "@/backend/db/schema";
+import { requireModel } from "@/backend/ai/registry";
 import type { CoreContext } from "../context";
 import { ConflictError, NotFoundError, ValidationError } from "../errors";
 import { isUniqueViolation } from "../errors";
 import { EventType } from "../events";
 import { editFingerprint } from "../fingerprint";
 import { requireMask } from "../masks";
+import { assertReferenceCaps, upsertSessionReferences, type ReferenceInput } from "../sessions/references";
 import { findRevisionByIdempotencyKey, requireRevision, requireRevisionInSession } from "./query";
 
 /** How long an unapproved revision lives before the expiry sweep marks it expired. */
@@ -53,6 +55,13 @@ export interface SubmitEditInput {
   maskId?: string | null;
   maskMode?: MaskMode;
   blueprint?: unknown | null;
+  /**
+   * Additional reference images (beyond the base/parent image) for a
+   * multi-reference edit, each tagged with a role. Ordered base → object → style
+   * for provider assembly. Upserted into the session pool; the ordered ids are
+   * recorded on the revision as editPayload.reference_image_ids.
+   */
+  references?: ReferenceInput[];
   createdVia?: "ui" | "api" | "mcp";
   /**
    * Optional client dedup key (unique per session). Resending the SAME key
@@ -141,7 +150,21 @@ async function createEditRevision(
   // parent itself started from (so forking a FAILED node re-edits its input).
   const inputImageId = parent.outputImageId ?? parent.inputImageId;
 
-  const fingerprint = await editFingerprint(params.editPayload, params.maskId ?? null, maskMode);
+  // Reference images: enforce per-model caps (clear error, not a provider 400),
+  // upsert them into the session pool, and fold the ordered ids into editPayload
+  // BEFORE fingerprinting so a different ref set is a new node and the same set
+  // stacks as a retry. execute.ts resolves reference_image_ids → base64 in order.
+  let editPayload = params.editPayload;
+  if (params.references && params.references.length > 0) {
+    assertReferenceCaps(requireModel(params.requestedModel), params.references);
+    const orderedIds = await upsertSessionReferences(ctx, params.sessionUuid, params.references);
+    editPayload =
+      editPayload && typeof editPayload === "object"
+        ? { ...(editPayload as Record<string, unknown>), reference_image_ids: orderedIds }
+        : { reference_image_ids: orderedIds };
+  }
+
+  const fingerprint = await editFingerprint(editPayload, params.maskId ?? null, maskMode);
   const approval = decideApproval(session.approvalPolicy, mask);
 
   // Optimistic attempt allocation against uniq_revisions_retry.
@@ -199,7 +222,7 @@ async function createEditRevision(
           editFingerprint: fingerprint,
           status: approval.status,
           promptText: params.promptText ?? "",
-          editPayload: params.editPayload,
+          editPayload,
           blueprint: params.blueprint ?? null,
           maskId: params.maskId ?? null,
           maskMode,
