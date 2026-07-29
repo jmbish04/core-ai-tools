@@ -39,30 +39,34 @@ type InputPart =
   | { type: "text"; text: string }
   | { type: "image"; mime_type: string; data: string };
 
-/** Instruction appended when a mask is supplied, describing how to honor it.
- *  Our mask PNG marks the target region in white; everything else is transparent. */
+/** Trailing instruction (placed AFTER the images so "the mask" is grounded in
+ *  the parts just shown). Our mask PNG marks the target region in white. */
 function maskInstruction(mode: ProviderRequest["maskMode"]): string {
-  return mode === "preserve"
-    ? "\n\nA binary mask image is included. KEEP the white (marked) region exactly as-is; apply the requested edit ONLY to the area OUTSIDE the white region."
-    : "\n\nA binary mask image is included. Apply the requested edit ONLY within the white (marked) region; leave every pixel outside it unchanged.";
+  const rule =
+    mode === "preserve"
+      ? "KEEP the white (marked) region exactly as-is and apply the requested edit ONLY to the area OUTSIDE it."
+      : "Apply the requested edit ONLY within the white (marked) region and leave every pixel outside it unchanged.";
+  return `Act as an explicit inpainting engine. The second image is a binary mask aligned to the first. ${rule} Output only the modified image.`;
 }
 
-/** Ordered input parts: prompt (+ mask note), the edited image (when not chaining),
- *  the mask (when supplied), then reference images. */
+/** Ordered input parts. For a masked edit the snippet's Type-A order is used —
+ *  prompt, base image, mask image, references, then the mask instruction last so
+ *  it references the images already shown. Gemini image models honor the mask;
+ *  capabilities gate the non-image ones. */
 function buildInput(req: ProviderRequest, includeInlineImage: boolean): InputPart[] {
-  const text = req.maskBase64 ? req.prompt + maskInstruction(req.maskMode) : req.prompt;
-  const parts: InputPart[] = [{ type: "text", text }];
+  const parts: InputPart[] = [{ type: "text", text: req.prompt }];
   if (includeInlineImage && req.inputImageBase64) {
     parts.push({ type: "image", mime_type: "image/png", data: req.inputImageBase64 });
   }
-  // Native masking: send the mask image right after the base so the model edits
-  // within it (Gemini image models honor this; capabilities gate non-image ones).
   if (req.maskBase64) {
     parts.push({ type: "image", mime_type: "image/png", data: req.maskBase64 });
   }
   const maxRefs = Math.max(0, req.model.capabilities.max_reference_images);
   for (const ref of (req.referenceImagesBase64 ?? []).slice(0, maxRefs)) {
     parts.push({ type: "image", mime_type: "image/png", data: ref });
+  }
+  if (req.maskBase64) {
+    parts.push({ type: "text", text: maskInstruction(req.maskMode) });
   }
   return parts;
 }
