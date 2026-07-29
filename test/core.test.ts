@@ -61,7 +61,7 @@ describe("sessions + seed node", () => {
   it("creates session and its seed node atomically", async () => {
     const c = ctx();
     const img = await seedImage(c);
-    const { session, seedRevisionId } = await createSession(c, { originLibraryImageId: img.id });
+    const { session, seedRevisionId } = await createSession(c, { title: "Test session", originLibraryImageId: img.id });
 
     expect(session.rootRevisionId).toBe(seedRevisionId);
     expect(session.approvalPolicy).toBe("masked_only");
@@ -83,7 +83,7 @@ describe("sessions + seed node", () => {
 
   it("rejects a session from a missing image", async () => {
     const c = ctx();
-    await expect(createSession(c, { originLibraryImageId: "nope" })).rejects.toBeInstanceOf(
+    await expect(createSession(c, { title: "Test session", originLibraryImageId: "nope" })).rejects.toBeInstanceOf(
       NotFoundError,
     );
   });
@@ -91,8 +91,8 @@ describe("sessions + seed node", () => {
   it("lists every session spawned from one image (the FK payoff)", async () => {
     const c = ctx();
     const img = await seedImage(c);
-    const s1 = await createSession(c, { originLibraryImageId: img.id });
-    const s2 = await createSession(c, { originLibraryImageId: img.id });
+    const s1 = await createSession(c, { title: "Test session", originLibraryImageId: img.id });
+    const s2 = await createSession(c, { title: "Test session", originLibraryImageId: img.id });
     const list = await listSessionsForImage(c, img.id);
     expect(list.map((s) => s.sessionUuid).sort()).toEqual(
       [s1.session.sessionUuid, s2.session.sessionUuid].sort(),
@@ -104,7 +104,7 @@ describe("edits: submit / retry / fork / tree grouping", () => {
   async function freshSession(policy?: "auto" | "masked_only" | "always") {
     const c = ctx();
     const img = await seedImage(c);
-    const { session, seedRevisionId } = await createSession(c, {
+    const { session, seedRevisionId } = await createSession(c, { title: "Test session",
       originLibraryImageId: img.id,
       approvalPolicy: policy ?? "auto",
     });
@@ -226,7 +226,7 @@ describe("HITL approval gating", () => {
   ) {
     const c = ctx();
     const img = await seedImage(c);
-    const { session, seedRevisionId } = await createSession(c, {
+    const { session, seedRevisionId } = await createSession(c, { title: "Test session",
       originLibraryImageId: img.id,
       approvalPolicy: policy,
     });
@@ -349,7 +349,7 @@ describe("HITL approval gating", () => {
   it("can cancel and pin", async () => {
     const c = ctx();
     const img = await seedImage(c);
-    const { session, seedRevisionId } = await createSession(c, {
+    const { session, seedRevisionId } = await createSession(c, { title: "Test session",
       originLibraryImageId: img.id,
       approvalPolicy: "auto",
     });
@@ -409,7 +409,7 @@ describe("event emitter seq allocation", () => {
   it("allocates monotonic seq and never drops under concurrent appends", async () => {
     const c = ctx();
     const img = await seedImage(c);
-    const { session } = await createSession(c, { originLibraryImageId: img.id });
+    const { session } = await createSession(c, { title: "Test session", originLibraryImageId: img.id });
     const emitter = new DirectD1Emitter(c.db);
 
     // createSession already emitted seq=1. Fire many concurrent appends.
@@ -432,7 +432,7 @@ describe("session archive reaps orphaned masks", () => {
   it("soft-deletes never-referenced session masks, keeps used ones", async () => {
     const c = ctx();
     const img = await seedImage(c);
-    const { session, seedRevisionId } = await createSession(c, {
+    const { session, seedRevisionId } = await createSession(c, { title: "Test session",
       originLibraryImageId: img.id,
       approvalPolicy: "auto",
     });

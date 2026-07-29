@@ -41,6 +41,7 @@ import { teamNotesRouter } from "./routes/team-notes";
 import { threadsRouter } from "./routes/threads";
 import { webhooksRouter } from "./routes/webhooks";
 // core-ai-tools image/video editing surfaces
+import { aiRouter } from "./routes/ai";
 import { masksRouter } from "./routes/masks";
 import { sessionsRouter } from "./routes/sessions";
 import { revisionsRouter } from "./routes/revisions";
@@ -120,7 +121,7 @@ app.use("/api/admin/*", authMiddleware);
 // `Bearer <WORKER_API_KEY>` (see authMiddleware). These carry real prompts,
 // sessions, and library images, so they are not left public. Registered before
 // the routers are mounted (Hono applies middleware in registration order).
-for (const p of ["sessions", "revisions", "library", "models", "prompts", "video"]) {
+for (const p of ["sessions", "revisions", "library", "models", "prompts", "video", "masks", "ai"]) {
   app.use(`/api/${p}`, authMiddleware);
   app.use(`/api/${p}/*`, authMiddleware);
 }
@@ -156,6 +157,7 @@ app.route("/api/seed", seedRouter);
 app.route("/api/__client-error", clientErrorRouter);
 
 // core-ai-tools surfaces — routers declare absolute /api/* paths, so mount at root.
+app.route("/", aiRouter);
 app.route("/", masksRouter);
 app.route("/", sessionsRouter);
 app.route("/", revisionsRouter);

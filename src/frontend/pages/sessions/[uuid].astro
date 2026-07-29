@@ -15,6 +15,7 @@ const { uuid } = Astro.params;
       floats over the workbench — so the tree + image stage keep full width. */}
   <AssistantModal
     client:only="react"
+    placement="bottom"
     agentName={`session-chat-${uuid!}`}
     buttonLabel="Session assistant"
     title="Session assistant"

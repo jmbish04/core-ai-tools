@@ -27,6 +27,8 @@ import { Badge } from "@/components/ui/badge";
 
 export interface RevisionNode {
   id: string;
+  /** Display name (rev1, rev2.1, "Original"); `id` is still the real uuid. */
+  revLabel?: string | null;
   parentRevisionId: string | null;
   attemptNumber: number;
   editFingerprint: string;
@@ -179,9 +181,15 @@ export function RevisionTreeCanvas({
                   <div className="flex items-center gap-1.5 truncate">
                     {isSeed ? (
                       <span className="font-mono text-[10px] uppercase font-bold text-primary">
-                        SEED PHOTO
+                        {node.revLabel ?? "SEED PHOTO"}
                       </span>
                     ) : (
+                      <>
+                        {node.revLabel && (
+                          <span className="font-mono text-[10px] font-bold text-foreground">
+                            {node.revLabel}
+                          </span>
+                        )}
                       <span
                         className={`inline-flex items-center gap-1 font-mono text-[10px] uppercase font-semibold ${
                           node.status === "succeeded"
@@ -196,6 +204,7 @@ export function RevisionTreeCanvas({
                         {node.status === "succeeded" && <CheckCircle2 className="h-3 w-3" />}
                         {node.status}
                       </span>
+                      </>
                     )}
                   </div>
 

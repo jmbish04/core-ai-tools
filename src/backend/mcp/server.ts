@@ -84,10 +84,10 @@ async function runAndPayload(ctx: CoreContext, rev: Awaited<ReturnType<typeof su
 
 const TOOLS: Record<string, ToolDef> = {
   create_session: {
-    description: `Start a session from a library image. ${SESSION_NOTE}`,
+    description: `Start a session from a library image. A session name (title) is REQUIRED. ${SESSION_NOTE}`,
     schema: z.object({
       originLibraryImageId: z.string(),
-      title: z.string().optional(),
+      title: z.string().min(1, "A session name (title) is required."),
       approvalPolicy: z.enum(["auto", "masked_only", "always"]).optional(),
     }),
     handler: (ctx, a) => createSession(ctx, { ...(a as any), createdVia: "mcp" }),

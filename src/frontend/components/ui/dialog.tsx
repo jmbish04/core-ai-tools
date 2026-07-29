@@ -44,19 +44,19 @@ function DialogContent({
   className,
   children,
   showClose = true,
+  placement = "center",
   ...props
-}: DialogPrimitive.Popup.Props & { showClose?: boolean }) {
+}: DialogPrimitive.Popup.Props & { showClose?: boolean; placement?: "center" | "bottom" }) {
+  // `center` = classic centered modal. `bottom` = a sheet anchored to the bottom
+  // of the viewport that slides up (used for the session assistant).
+  const base =
+    placement === "bottom"
+      ? "fixed inset-x-0 bottom-0 z-50 mx-auto grid w-full max-w-2xl gap-4 rounded-t-2xl bg-background p-6 ring-1 ring-foreground/10 shadow-xl duration-200 outline-none data-open:animate-in data-open:slide-in-from-bottom data-closed:animate-out data-closed:slide-out-to-bottom"
+      : "fixed top-1/2 left-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-background p-6 ring-1 ring-foreground/10 shadow-xl duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95";
   return (
     <DialogPortal>
       <DialogOverlay />
-      <DialogPrimitive.Popup
-        data-slot="dialog-content"
-        className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-background p-6 ring-1 ring-foreground/10 shadow-xl duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-          className,
-        )}
-        {...props}
-      >
+      <DialogPrimitive.Popup data-slot="dialog-content" className={cn(base, className)} {...props}>
         {children}
         {showClose && (
           <DialogPrimitive.Close

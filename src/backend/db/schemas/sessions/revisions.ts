@@ -101,6 +101,13 @@ export const revisions = sqliteTable(
       { onDelete: "set null" },
     ),
     attemptNumber: integer("attempt_number").notNull().default(1),
+    /**
+     * Human display name for the edit-node (NOT the uuid). Seed = "Original";
+     * top-level edits = rev1, rev2, …; forks branch with dotted notation
+     * (rev2.1, rev2.1.1). Assigned once per edit-node at creation and shared by
+     * that node's retry attempts. The uuid (`id`) remains the real identifier.
+     */
+    revLabel: text("rev_label"),
     editFingerprint: text("edit_fingerprint").notNull(),
     status: text("status", {
       enum: [

@@ -155,6 +155,7 @@ export function LibraryGrid() {
 
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+  const [sessionName, setSessionName] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const seq = useRef(0);
 
@@ -282,11 +283,17 @@ export function LibraryGrid() {
   };
 
   const handleStartSession = async (imageId: string) => {
+    const title = sessionName.trim();
+    if (!title) {
+      setStartError("A session name is required.");
+      return;
+    }
     setStarting(true);
     setStartError(null);
     try {
       const res = await apiSend<{ sessionUuid: string }>("POST", "sessions", {
         originLibraryImageId: imageId,
+        title,
         createdVia: "ui",
       });
       window.location.href = `/sessions/${res.sessionUuid}`;
@@ -648,18 +655,29 @@ export function LibraryGrid() {
 
               {/* Action Button */}
               {detailTile.id && (
-                <Button
-                  onClick={() => handleStartSession(detailTile.id!)}
-                  disabled={starting}
-                  className="w-full gap-2 bg-primary text-primary-foreground font-medium py-5"
-                >
-                  {starting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="h-4 w-4" />
-                  )}
-                  Start New Session From Photo
-                </Button>
+                <div className="space-y-2">
+                  <label className="font-mono text-xs text-muted-foreground">
+                    Session name <span className="text-destructive">*</span>
+                  </label>
+                  <Input
+                    value={sessionName}
+                    onChange={(e) => setSessionName(e.target.value)}
+                    placeholder="e.g. Primary bath — spa remodel"
+                    className="bg-background ring-1 ring-border/40 text-sm"
+                  />
+                  <Button
+                    onClick={() => handleStartSession(detailTile.id!)}
+                    disabled={starting || !sessionName.trim()}
+                    className="w-full gap-2 bg-primary text-primary-foreground font-medium py-5"
+                  >
+                    {starting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-4 w-4" />
+                    )}
+                    Start New Session From Photo
+                  </Button>
+                </div>
               )}
 
               {/* Sessions spawned from this image */}

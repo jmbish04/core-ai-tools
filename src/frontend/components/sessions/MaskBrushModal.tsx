@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Circle,
   Eraser,
   Loader2,
   Paintbrush,
@@ -14,7 +15,6 @@ import {
   Sparkles,
   Square,
   Type,
-  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -40,15 +40,31 @@ export function MaskBrushModal({
   derivedFromMaskId,
   onMaskCreated,
 }: MaskBrushModalProps) {
-  const [tool, setTool] = useState<"brush" | "erase" | "rect" | "semantic">("brush");
+  const [tool, setTool] = useState<"brush" | "erase" | "rect" | "circle" | "semantic">("brush");
   const [brushSize, setBrushSize] = useState(24);
   const [semanticLabel, setSemanticLabel] = useState("");
   const [maskMode, setMaskMode] = useState<"inpaint" | "preserve">("inpaint");
+  const [maskColor, setMaskColor] = useState("#ef4444");
   const [saving, setSaving] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const isDrawing = useRef(false);
+  // Shape drag: remember the start point + a snapshot of the committed canvas so
+  // the rectangle/ellipse preview can be re-rendered live without stacking.
+  const shapeStart = useRef<{ x: number; y: number } | null>(null);
+  const snapshot = useRef<ImageData | null>(null);
+
+  const PRESET_COLORS = ["#ef4444", "#3b82f6", "#22c55e", "#eab308", "#a855f7", "#ffffff"];
+
+  /** Hex (#rrggbb) → rgba() string at the given alpha. */
+  const rgba = (hex: string, a: number) => {
+    const h = hex.replace("#", "");
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${a})`;
+  };
 
   // Initialize canvas
   const initCanvas = useCallback(() => {
@@ -81,25 +97,58 @@ export function MaskBrushModal({
     };
   };
 
+  /** Draw a filled rectangle or ellipse from the shape start to the cursor. */
+  const drawShape = (ctx: CanvasRenderingContext2D, x: number, y: number) => {
+    const start = shapeStart.current;
+    if (!start) return;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = rgba(maskColor, 0.6);
+    ctx.strokeStyle = rgba(maskColor, 0.95);
+    ctx.lineWidth = 2;
+    if (tool === "rect") {
+      const w = x - start.x;
+      const h = y - start.y;
+      ctx.beginPath();
+      ctx.rect(start.x, start.y, w, h);
+      ctx.fill();
+      ctx.stroke();
+    } else if (tool === "circle") {
+      const rx = Math.abs(x - start.x) / 2;
+      const ry = Math.abs(y - start.y) / 2;
+      const cx = (x + start.x) / 2;
+      const cy = (y + start.y) / 2;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+  };
+
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (tool === "semantic") return;
     isDrawing.current = true;
-    const ctx = canvasRef.current?.getContext("2d");
-    if (!ctx) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
 
     const { x, y } = getCanvasCoords(e);
+
+    if (tool === "rect" || tool === "circle") {
+      // Snapshot the committed canvas so each drag frame can restore + redraw.
+      shapeStart.current = { x, y };
+      snapshot.current = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      return;
+    }
+
     ctx.beginPath();
     ctx.moveTo(x, y);
-
-    if (tool === "brush" || tool === "erase") {
-      ctx.lineWidth = brushSize;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.globalCompositeOperation = tool === "erase" ? "destination-out" : "source-over";
-      ctx.strokeStyle = "rgba(239, 68, 68, 0.7)"; // Red semi-transparent overlay
-      ctx.lineTo(x, y);
-      ctx.stroke();
-    }
+    ctx.lineWidth = brushSize;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.globalCompositeOperation = tool === "erase" ? "destination-out" : "source-over";
+    ctx.strokeStyle = rgba(maskColor, 0.7);
+    ctx.lineTo(x, y);
+    ctx.stroke();
   };
 
   const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -111,11 +160,24 @@ export function MaskBrushModal({
     if (tool === "brush" || tool === "erase") {
       ctx.lineTo(x, y);
       ctx.stroke();
+    } else if ((tool === "rect" || tool === "circle") && snapshot.current) {
+      ctx.putImageData(snapshot.current, 0, 0); // restore committed pixels
+      drawShape(ctx, x, y); // live preview of the shape
     }
   };
 
-  const stopDrawing = () => {
+  const stopDrawing = (e?: React.MouseEvent<HTMLCanvasElement>) => {
+    if ((tool === "rect" || tool === "circle") && shapeStart.current && e) {
+      const ctx = canvasRef.current?.getContext("2d");
+      if (ctx && snapshot.current) {
+        const { x, y } = getCanvasCoords(e);
+        ctx.putImageData(snapshot.current, 0, 0);
+        drawShape(ctx, x, y); // commit the final shape
+      }
+    }
     isDrawing.current = false;
+    shapeStart.current = null;
+    snapshot.current = null;
   };
 
   const clearCanvas = () => {
@@ -176,6 +238,35 @@ export function MaskBrushModal({
     };
   };
 
+  /**
+   * Export the painted region as a clean binary alpha mask PNG (white+opaque
+   * where painted, transparent elsewhere) — independent of the display color —
+   * and return raw base64 (no data: prefix). Null if nothing is painted.
+   */
+  const rasterizeMask = (): string | null => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return null;
+    const src = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const out = ctx.createImageData(canvas.width, canvas.height);
+    let painted = false;
+    for (let i = 0; i < src.data.length; i += 4) {
+      if (src.data[i + 3] > 10) {
+        out.data[i] = 255;
+        out.data[i + 1] = 255;
+        out.data[i + 2] = 255;
+        out.data[i + 3] = 255;
+        painted = true;
+      }
+    }
+    if (!painted) return null;
+    const tmp = document.createElement("canvas");
+    tmp.width = canvas.width;
+    tmp.height = canvas.height;
+    tmp.getContext("2d")?.putImageData(out, 0, 0);
+    return tmp.toDataURL("image/png").split(",")[1] ?? null;
+  };
+
   const handleSaveMask = async () => {
     setSaving(true);
     try {
@@ -183,6 +274,7 @@ export function MaskBrushModal({
       let geometryData: unknown = {};
       let coverageRatio = 0.1;
       let label: string | null = null;
+      let rasterPngBase64: string | null = null;
 
       if (tool === "semantic") {
         kind = "semantic";
@@ -193,7 +285,13 @@ export function MaskBrushModal({
         kind = "raster";
         geometryData = computed.geometry;
         coverageRatio = computed.coverageRatio;
-        label = `Mask ${kind} (${(coverageRatio * 100).toFixed(0)}% area)`;
+        rasterPngBase64 = rasterizeMask();
+        if (!rasterPngBase64) {
+          alert("Paint or draw a region first.");
+          setSaving(false);
+          return;
+        }
+        label = `Mask (${(coverageRatio * 100).toFixed(0)}% area)`;
       }
 
       const res = await apiSend<{ id: string; label: string | null }>("POST", "masks", {
@@ -202,6 +300,7 @@ export function MaskBrushModal({
         kind,
         geometry: geometryData,
         coverageRatio,
+        rasterPngBase64,
         label,
         derivedFromMaskId: derivedFromMaskId || null,
         state: "confirmed",
@@ -242,6 +341,22 @@ export function MaskBrushModal({
               <Paintbrush className="h-3.5 w-3.5" /> Brush
             </button>
             <button
+              onClick={() => setTool("rect")}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium transition-colors ${
+                tool === "rect" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Square className="h-3.5 w-3.5" /> Rect
+            </button>
+            <button
+              onClick={() => setTool("circle")}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium transition-colors ${
+                tool === "circle" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Circle className="h-3.5 w-3.5" /> Circle
+            </button>
+            <button
               onClick={() => setTool("erase")}
               className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium transition-colors ${
                 tool === "erase" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:text-foreground"
@@ -267,7 +382,7 @@ export function MaskBrushModal({
             </Button>
           </div>
 
-          {tool !== "semantic" && (
+          {(tool === "brush" || tool === "erase") && (
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground font-mono">Brush size:</span>
               <input
@@ -279,6 +394,32 @@ export function MaskBrushModal({
                 className="h-1.5 w-20 accent-primary"
               />
               <span className="font-mono text-foreground">{brushSize}px</span>
+            </div>
+          )}
+
+          {/* Mask color — applies to brush + shapes (erase/semantic ignore it). */}
+          {tool !== "semantic" && tool !== "erase" && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted-foreground font-mono">Color:</span>
+              {PRESET_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setMaskColor(c)}
+                  aria-label={`Mask color ${c}`}
+                  className={`h-5 w-5 rounded-full ring-1 transition-transform ${
+                    maskColor === c ? "ring-2 ring-primary scale-110" : "ring-border/40"
+                  }`}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+              <input
+                type="color"
+                value={maskColor}
+                onChange={(e) => setMaskColor(e.target.value)}
+                aria-label="Custom mask color"
+                className="h-5 w-6 cursor-pointer rounded bg-transparent p-0"
+              />
             </div>
           )}
 
