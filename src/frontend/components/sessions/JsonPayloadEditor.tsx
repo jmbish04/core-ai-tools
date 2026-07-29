@@ -17,6 +17,7 @@
 
 import { useState } from "react";
 import { HelpCircle, Loader2, Sparkles, X } from "lucide-react";
+import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +32,10 @@ import {
 import { apiSend } from "@/lib/api";
 
 // --- Collapsible, syntax-colored JSON tree -------------------------------
+
+/** Hard recursion cap so a deeply nested (or malicious) payload can't blow the
+ * call stack and crash the editor. Deeper levels render a "…" placeholder. */
+const MAX_DEPTH = 16;
 
 function Primitive({ value }: { value: unknown }) {
   if (value === null) return <span className="text-muted-foreground">null</span>;
@@ -55,6 +60,16 @@ function JsonNode({ name, value, depth }: { name?: string; value: unknown; depth
       <div className="whitespace-pre-wrap break-all">
         {name !== undefined && <span className="text-foreground/80">{name}: </span>}
         <Primitive value={value} />
+      </div>
+    );
+  }
+
+  // Stop recursing past the cap — render a collapsed placeholder instead.
+  if (depth >= MAX_DEPTH) {
+    return (
+      <div className="whitespace-pre-wrap break-all">
+        {name !== undefined && <span className="text-foreground/80">{name}: </span>}
+        <span className="text-muted-foreground">{Array.isArray(value) ? "[ … ]" : "{ … }"}</span>
       </div>
     );
   }
@@ -130,11 +145,14 @@ export function JsonPayloadEditor({
     setError(null);
     setResult(null);
     try {
-      const res = await apiSend<{ formatted: string }>("POST", "ai/format-json", {
+      const raw = await apiSend<unknown>("POST", "ai/format-json", {
         json: value,
         instruction: instruction.trim() || undefined,
       });
-      setResult(res.formatted);
+      // Validate the shape at runtime — a type cast alone would let an
+      // unexpected response through as `undefined`.
+      const { formatted } = z.object({ formatted: z.string() }).parse(raw);
+      setResult(formatted);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Formatting failed.");
     } finally {
