@@ -158,6 +158,16 @@
       "id": "aba8552a49c64335ba4832d34ce9459d",
       "remote": true,
     },
+    {
+      // Astro's session store. @astrojs/cloudflare injects a `SESSION` binding
+      // for Astro.session regardless of the session driver config; declare it
+      // with the existing `core-ai-tools-session` namespace id so `wrangler
+      // deploy` binds it instead of trying to provision a new one (which
+      // collided: "a namespace with this title already exists").
+      "binding": "SESSION",
+      "id": "2031b660dcc241e39404d4d98d09a965",
+      "remote": true,
+    },
   ],
   "d1_databases": [
     {

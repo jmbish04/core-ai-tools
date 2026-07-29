@@ -2,7 +2,7 @@
 import cloudflare from "@astrojs/cloudflare";
 import react from "@astrojs/react";
 import tailwindcss from "@tailwindcss/vite";
-import { defineConfig } from "astro/config";
+import { defineConfig, sessionDrivers } from "astro/config";
 
 const site = process.env.SITE ?? "http://localhost:4321";
 const base = process.env.BASE || "/";
@@ -13,14 +13,14 @@ export default defineConfig({
   srcDir: "./src/frontend",
   base,
   output: "server",
-  // Use the project's existing `SESSIONS` KV binding for Astro's session
-  // store. By default the adapter looks for a `SESSION` binding; pointing
-  // the driver at the explicit binding name avoids the "Invalid binding
-  // `SESSION`" warning on build and lets the auth middleware and Astro
-  // share one namespace.
+  // Use the project's existing `SESSIONS` KV binding for Astro's session store.
+  // Astro v6+ replaced the deprecated string `driver` signature with the
+  // `sessionDrivers` factory; the old string form made astro inject a default
+  // unnamed `SESSION` binding, which `wrangler deploy` then tried to provision
+  // (colliding with an existing namespace). Binding by name reuses SESSIONS
+  // (declared with an id in wrangler.jsonc) — no new namespace is created.
   session: {
-    driver: "cloudflare-kv-binding",
-    options: { binding: "SESSIONS" },
+    driver: sessionDrivers.cloudflareKVBinding({ binding: "SESSIONS" }),
   },
   adapter: cloudflare({
     imageService: "cloudflare",
