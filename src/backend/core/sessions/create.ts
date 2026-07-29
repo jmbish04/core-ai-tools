@@ -14,6 +14,7 @@ import { eq } from "drizzle-orm";
 import { revisions, sessions } from "@/backend/db/schema";
 import type { Session } from "@/backend/db/schema";
 import type { CoreContext } from "../context";
+import { ValidationError } from "../errors";
 import { EventType } from "../events";
 import { seedRevisionValues } from "../revisions/seed";
 import { requireImage } from "../library/images";
@@ -46,13 +47,19 @@ export async function createSession(
 ): Promise<CreateSessionResult> {
   await requireImage(ctx, input.originLibraryImageId);
 
+  // A session name is required across every surface (UI, REST, MCP).
+  const title = input.title?.trim();
+  if (!title) {
+    throw new ValidationError("A session name (title) is required.");
+  }
+
   const sessionUuid = crypto.randomUUID();
   const seedRevisionId = crypto.randomUUID();
   const createdVia = input.createdVia ?? "ui";
 
   const sessionRow = {
     sessionUuid,
-    title: input.title ?? null,
+    title,
     originLibraryImageId: input.originLibraryImageId,
     status: "active" as const,
     approvalPolicy: input.approvalPolicy ?? "masked_only",

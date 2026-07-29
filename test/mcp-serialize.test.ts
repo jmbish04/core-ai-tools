@@ -18,7 +18,7 @@ describe("mcp serialize — image url decoration", () => {
   it("decorates every attempt in the tree with input/output/reference url fields", async () => {
     const c = ctx();
     const img = await seedImage(c);
-    const { session } = await createSession(c, { originLibraryImageId: img.id });
+    const { session } = await createSession(c, { title: "Test session", originLibraryImageId: img.id });
 
     const tree = await getSessionTree(c, session.sessionUuid);
     type Rev = {

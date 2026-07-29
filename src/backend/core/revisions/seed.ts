@@ -36,6 +36,7 @@ export function seedRevisionValues(input: SeedRevisionInput): NewRevision {
     sessionUuid: input.sessionUuid,
     parentRevisionId: null,
     attemptNumber: 0,
+    revLabel: "Original",
     editFingerprint: SEED_FINGERPRINT,
     status: "succeeded",
     promptText: "",

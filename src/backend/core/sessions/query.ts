@@ -84,6 +84,8 @@ export async function resumeSession(ctx: CoreContext, sessionUuid: string): Prom
 /** One revision, flattened for the session-detail frontend (with its output URL). */
 export interface SessionViewRevision {
   id: string;
+  /** Display name (rev1, rev2.1, "Original"); the uuid `id` stays the real key. */
+  revLabel: string | null;
   parentRevisionId: string | null;
   attemptNumber: number;
   editFingerprint: string;
@@ -140,6 +142,7 @@ export async function getSessionView(ctx: CoreContext, sessionUuid: string): Pro
 
   const revisions: SessionViewRevision[] = revs.map((r) => ({
     id: r.id,
+    revLabel: r.revLabel,
     parentRevisionId: r.parentRevisionId,
     attemptNumber: r.attemptNumber,
     editFingerprint: r.editFingerprint,

@@ -160,6 +160,34 @@ async function createEditRevision(
       .limit(1);
     const attemptNumber = (top?.attemptNumber ?? 0) + 1;
 
+    // Display label for the edit-node. A retry (attempt > 1) shares the node's
+    // existing label; a new node is labeled from the parent: top-level edits are
+    // rev1/rev2/… and deeper edits/forks branch with dotted notation
+    // (rev2 → rev2.1 → rev2.1.1). The uuid stays the real identifier.
+    let revLabel: string | null;
+    if (attemptNumber > 1) {
+      const [sib] = await ctx.db
+        .select({ revLabel: revisions.revLabel })
+        .from(revisions)
+        .where(
+          and(
+            eq(revisions.sessionUuid, params.sessionUuid),
+            eq(revisions.parentRevisionId, params.parentRevisionId),
+            eq(revisions.editFingerprint, fingerprint),
+          ),
+        )
+        .limit(1);
+      revLabel = sib?.revLabel ?? null;
+    } else {
+      const sibs = await ctx.db
+        .selectDistinct({ f: revisions.editFingerprint })
+        .from(revisions)
+        .where(eq(revisions.parentRevisionId, params.parentRevisionId));
+      const idx = sibs.length + 1; // 1-based position among sibling edit-nodes
+      revLabel =
+        parent.parentRevisionId === null ? `rev${idx}` : `${parent.revLabel ?? "rev"}.${idx}`;
+    }
+
     try {
       const [row] = await ctx.db
         .insert(revisions)
@@ -167,6 +195,7 @@ async function createEditRevision(
           sessionUuid: params.sessionUuid,
           parentRevisionId: params.parentRevisionId,
           attemptNumber,
+          revLabel,
           editFingerprint: fingerprint,
           status: approval.status,
           promptText: params.promptText ?? "",

@@ -47,7 +47,7 @@ describe("prompt library + grading", () => {
   it("promotes a revision into a template and rolls up grades", async () => {
     const c = ctx();
     const img = await seedImage(c);
-    const { session, seedRevisionId } = await createSession(c, {
+    const { session, seedRevisionId } = await createSession(c, { title: "Test session",
       originLibraryImageId: img.id,
       approvalPolicy: "auto",
     });

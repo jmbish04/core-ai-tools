@@ -19,9 +19,9 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { apiGet, apiSend } from "@/lib/api";
+import { JsonPayloadEditor } from "./JsonPayloadEditor";
 
 interface ModelOption {
   id: string;
@@ -163,15 +163,7 @@ export function ComposePane({
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Prompt Input or JSON Mode */}
         {isJsonMode ? (
-          <div className="space-y-1">
-            <label className="font-mono text-xs text-muted-foreground">JSON Edit Payload</label>
-            <Textarea
-              value={jsonPayload}
-              onChange={(e) => setJsonPayload(e.target.value)}
-              rows={4}
-              className="font-mono text-xs bg-background ring-1 ring-border/40"
-            />
-          </div>
+          <JsonPayloadEditor value={jsonPayload} onChange={setJsonPayload} />
         ) : (
           <div className="space-y-1">
             <label className="font-mono text-xs text-muted-foreground">
@@ -187,8 +179,8 @@ export function ComposePane({
           </div>
         )}
 
-        {/* Model Selector & Mask Trigger */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+        {/* Model selector + mask trigger — stacked, each on its own line. */}
+        <div className="flex flex-col gap-3 text-xs">
           {/* Model Picker */}
           <div className="space-y-1">
             <label className="font-mono text-muted-foreground flex items-center gap-1">

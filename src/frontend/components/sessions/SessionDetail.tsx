@@ -267,8 +267,8 @@ export function SessionDetail({ uuid }: { uuid: string }) {
             <ImageDiffViewer
               parentImageUrl={parentImageUrl}
               currentImageUrl={currentImageUrl}
-              parentLabel={parentNode ? `Parent (${parentNode.id.slice(0, 8)})` : "Seed Photo"}
-              currentLabel={`Revision (${selectedNode?.id.slice(0, 8)})`}
+              parentLabel={parentNode ? (parentNode.revLabel ?? `Parent (${parentNode.id.slice(0, 8)})`) : "Seed Photo"}
+              currentLabel={selectedNode?.revLabel ?? `Revision (${selectedNode?.id.slice(0, 8)})`}
             />
           ) : (
             <div className="relative flex min-h-[420px] w-full flex-col overflow-hidden rounded-xl bg-canvas p-4 ring-1 ring-border/40 select-none">

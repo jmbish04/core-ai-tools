@@ -93,8 +93,11 @@ export function RevisionDetailPane({
             SELECTED REVISION
           </span>
           <h3 className="font-mono text-sm font-semibold text-foreground truncate">
-            {revision.id}
+            {revision.revLabel ?? `rev ${revision.id.slice(0, 8)}`}
           </h3>
+          <p className="font-mono text-[10px] text-muted-foreground truncate" title={revision.id}>
+            {revision.id}
+          </p>
         </div>
 
         <div className="flex shrink-0 items-center gap-2">

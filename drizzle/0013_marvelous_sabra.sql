@@ -1,0 +1,1 @@
+ALTER TABLE `revisions` ADD `rev_label` text;
