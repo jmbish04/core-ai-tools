@@ -1,6 +1,11 @@
 {
   "name": "core-ai-tools",
-  "main": "dist/_worker.js/index.js",
+  // @astrojs/cloudflare v14 unified entrypoint. It wraps the adapter build
+  // (incl. our custom workerEntryPoint src/_worker.ts + its DO named exports)
+  // for both `astro dev` and `wrangler deploy`. A bare specifier (no .js/.ts)
+  // also sidesteps @cloudflare/vite-plugin's build-time `main` existence check,
+  // which a `dist/_worker.js/index.js` path failed (file absent pre-build).
+  "main": "@astrojs/cloudflare/entrypoints/server",
   "compatibility_date": "2026-05-25",
   "compatibility_flags": ["nodejs_compat"],
   "upload_source_maps": true,
