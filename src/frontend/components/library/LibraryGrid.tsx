@@ -18,7 +18,6 @@ import {
   FolderPlus,
   Grid,
   ImageIcon,
-  Images,
   Loader2,
   Plus,
   Search,
@@ -40,6 +39,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { FolderTree } from "./FolderTree";
 
 function variant(deliveryUrl: string, name: string): string {
   if (!deliveryUrl) return "";
@@ -359,6 +359,10 @@ export function LibraryGrid() {
   const activeFolderName =
     folders.find((f) => f.id === activeFolderId)?.name ?? "All images";
 
+  const doneTiles = tiles.filter((t) => t.status === "done");
+  const folderCounts: Record<string, number> = { __all__: doneTiles.length };
+  for (const f of folders) folderCounts[f.id] = doneTiles.filter((t) => t.folderId === f.id).length;
+
   return (
     <div className="flex max-w-7xl flex-col gap-6">
       {/* Header bar */}
@@ -430,56 +434,12 @@ export function LibraryGrid() {
             </Button>
           </div>
 
-          <button
-            onClick={() => setActiveFolderId(null)}
-            className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-              activeFolderId === null
-                ? "bg-muted text-foreground"
-                : "text-muted-foreground hover:bg-accent/10 hover:text-foreground"
-            }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <Images className="h-4 w-4 text-primary" />
-              <span>All images</span>
-            </div>
-            <span className="font-mono text-xs text-muted-foreground">
-              {tiles.filter((t) => t.status === "done").length}
-            </span>
-          </button>
-
-          <div className="mt-1 flex flex-col gap-1 border-t border-border/40 pt-2">
-            {folders.length === 0 ? (
-              <p className="px-3 py-2 text-xs text-muted-foreground italic">
-                No folders created yet.
-              </p>
-            ) : (
-              folders.map((folder) => {
-                const count = tiles.filter(
-                  (t) => t.folderId === folder.id && t.status === "done",
-                ).length;
-                const isActive = activeFolderId === folder.id;
-                return (
-                  <button
-                    key={folder.id}
-                    onClick={() => setActiveFolderId(folder.id)}
-                    className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors ${
-                      isActive
-                        ? "bg-muted font-medium text-foreground"
-                        : "text-muted-foreground hover:bg-accent/10 hover:text-foreground"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 truncate">
-                      <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate">{folder.name}</span>
-                    </div>
-                    <span className="font-mono text-xs text-muted-foreground shrink-0">
-                      {count}
-                    </span>
-                  </button>
-                );
-              })
-            )}
-          </div>
+          <FolderTree
+            folders={folders}
+            counts={folderCounts}
+            activeFolderId={activeFolderId}
+            onSelectFolder={setActiveFolderId}
+          />
         </div>
 
         {/* Content area */}
