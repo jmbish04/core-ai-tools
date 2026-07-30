@@ -18,6 +18,8 @@ import { ValidationError } from "../errors";
 import { EventType } from "../events";
 import { seedRevisionValues } from "../revisions/seed";
 import { requireImage } from "../library/images";
+import { upsertSessionReferences } from "./references";
+import type { ReferenceInput } from "./references";
 
 export type CreatedVia = "ui" | "api" | "mcp";
 export type ApprovalPolicy = "auto" | "masked_only" | "always";
@@ -28,6 +30,10 @@ export interface CreateSessionInput {
   title?: string | null;
   approvalPolicy?: ApprovalPolicy;
   createdVia?: CreatedVia;
+  /** Non-primary selections to seed the session's reference pool. */
+  references?: { imageId: string; role: "object" | "style" }[];
+  /** Per-session model overrides by task_key, e.g. { image_edit: "gemini-3-pro-image" }. */
+  modelOverrides?: Record<string, string>;
 }
 
 export interface CreateSessionResult {
@@ -53,6 +59,17 @@ export async function createSession(
     throw new ValidationError("A session name (title) is required.");
   }
 
+  // Drop refs that duplicate the primary or each other; validate every id up
+  // front so a bad ref rejects the whole create (no orphan session row).
+  const seen = new Set<string>([input.originLibraryImageId]);
+  const refs: ReferenceInput[] = [];
+  for (const r of input.references ?? []) {
+    if (seen.has(r.imageId)) continue;
+    seen.add(r.imageId);
+    await requireImage(ctx, r.imageId); // throws NotFound → whole create fails before any write
+    refs.push({ imageId: r.imageId, role: r.role });
+  }
+
   const sessionUuid = crypto.randomUUID();
   const seedRevisionId = crypto.randomUUID();
   const createdVia = input.createdVia ?? "ui";
@@ -65,6 +82,7 @@ export async function createSession(
     approvalPolicy: input.approvalPolicy ?? "masked_only",
     rootRevisionId: seedRevisionId,
     createdVia,
+    ...(input.modelOverrides ? { modelOverrides: input.modelOverrides } : {}),
   };
 
   const seedRow = seedRevisionValues({
@@ -81,6 +99,10 @@ export async function createSession(
     ctx.db.insert(sessions).values(sessionRow),
     ctx.db.insert(revisions).values(seedRow),
   ]);
+
+  // ponytail: refs already validated above; upsertSessionReferences re-checks
+  // existence (one extra read each) — acceptable for the create path.
+  if (refs.length) await upsertSessionReferences(ctx, sessionUuid, refs);
 
   // Publish after the write commits — this is what surfaces the new session live
   // on any other connected surface.
