@@ -16,6 +16,8 @@ describe("createSession with references + overrides", () => {
       references: [
         { imageId: refA.id, role: "object" },
         { imageId: refB.id, role: "style" },
+        { imageId: primary.id, role: "object" },
+        { imageId: refA.id, role: "object" },
       ],
       modelOverrides: { image_edit: "gemini-3-pro-image" },
     });
@@ -29,7 +31,8 @@ describe("createSession with references + overrides", () => {
       { id: refB.id, role: "style" },
     ].sort((a, b) => a.id.localeCompare(b.id));
     expect(pool).toEqual(expected);
-    // Primary is the origin, never in the pool.
+    expect(pool.length).toBe(2);
+    // Primary is the origin, never in the pool (even when passed in `references`).
     expect((view.references ?? []).some((r) => r.image.id === primary.id)).toBe(false);
   });
 
