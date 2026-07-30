@@ -7,7 +7,7 @@
  *   - Submit edit action (submits to `POST /api/revisions`).
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Code,
   Cpu,
@@ -54,6 +54,10 @@ interface ComposePaneProps {
   onOpenMaskBrush: () => void;
   attachedMask: AttachedMask | null;
   onClearMask: () => void;
+  initialReferences?: {
+    role: "base" | "object" | "style";
+    image: { id: string; deliveryUrl: string; originalFilename: string | null };
+  }[];
 }
 
 export function ComposePane({
@@ -63,6 +67,7 @@ export function ComposePane({
   onOpenMaskBrush,
   attachedMask,
   onClearMask,
+  initialReferences,
 }: ComposePaneProps) {
   const [promptText, setPromptText] = useState("");
   const [isJsonMode, setIsJsonMode] = useState(false);
@@ -73,6 +78,26 @@ export function ComposePane({
   const [references, setReferences] = useState<ReferenceItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Seed the reference pool from the session's persisted references exactly
+  // once — guarded so later re-renders / WS-driven refetches of the parent
+  // don't clobber the user's in-progress edits to the picker.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current) return;
+    const pool = (initialReferences ?? []).filter((r) => r.role !== "base");
+    if (pool.length) {
+      setReferences(
+        pool.map((r) => ({
+          imageId: r.image.id,
+          role: r.role as "object" | "style",
+          thumbUrl: r.image.deliveryUrl.replace(/\/[^/]+$/, "/thumb"),
+          label: r.image.originalFilename,
+        })),
+      );
+      seededRef.current = true;
+    }
+  }, [initialReferences]);
 
   // Fetch available models from registry. Deprecated models are kept in the
   // registry (history/fallback) but hidden from the picker.

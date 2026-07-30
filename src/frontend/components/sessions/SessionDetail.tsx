@@ -52,6 +52,10 @@ interface SessionDetailData {
     deliveryUrl: string;
     originalFilename?: string | null;
   };
+  references?: {
+    role: "base" | "object" | "style";
+    image: { id: string; deliveryUrl: string; originalFilename: string | null };
+  }[];
 }
 
 function variant(deliveryUrl?: string | null, name: string = "full"): string {
@@ -344,6 +348,7 @@ export function SessionDetail({ uuid }: { uuid: string }) {
               onOpenMaskBrush={() => setMaskBrushOpen(true)}
               attachedMask={attachedMask}
               onClearMask={() => setAttachedMask(null)}
+              initialReferences={data.references}
             />
           )}
 
