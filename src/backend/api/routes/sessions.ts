@@ -32,6 +32,10 @@ sessionsRouter.openapi(
               title: z.string().nullish(),
               approvalPolicy: z.enum(["auto", "masked_only", "always"]).optional(),
               createdVia: z.enum(["ui", "api", "mcp"]).optional(),
+              references: z
+                .array(z.object({ imageId: z.string(), role: z.enum(["object", "style"]) }))
+                .optional(),
+              modelOverrides: z.record(z.string(), z.string()).optional(),
             }),
           },
         },
