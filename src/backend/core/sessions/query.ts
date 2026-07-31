@@ -13,6 +13,7 @@ import { NotFoundError } from "../errors";
 import { listSessionRevisions } from "../revisions/query";
 import { getSessionTree } from "../revisions/tree";
 import type { SessionTree } from "../revisions/tree";
+import { listSessionReferences } from "./references";
 
 /** Fetch a session or throw NotFound. */
 export async function requireSession(ctx: CoreContext, sessionUuid: string): Promise<Session> {
@@ -117,6 +118,10 @@ export interface SessionView {
   };
   revisions: SessionViewRevision[];
   originImage?: { id: string; deliveryUrl: string; originalFilename: string | null };
+  references?: {
+    role: "base" | "object" | "style";
+    image: { id: string; deliveryUrl: string; originalFilename: string | null };
+  }[];
 }
 
 /**
@@ -164,6 +169,16 @@ export async function getSessionView(ctx: CoreContext, sessionUuid: string): Pro
 
   const origin = session.originLibraryImageId ? byId.get(session.originLibraryImageId) : undefined;
 
+  const pool = await listSessionReferences(ctx, sessionUuid);
+  const references = pool.map((r) => ({
+    role: r.role,
+    image: {
+      id: r.image.id,
+      deliveryUrl: r.image.deliveryUrl,
+      originalFilename: r.image.originalFilename,
+    },
+  }));
+
   return {
     session: {
       sessionUuid: session.sessionUuid,
@@ -178,5 +193,6 @@ export async function getSessionView(ctx: CoreContext, sessionUuid: string): Pro
     originImage: origin
       ? { id: origin.id, deliveryUrl: origin.deliveryUrl, originalFilename: origin.originalFilename }
       : undefined,
+    references,
   };
 }

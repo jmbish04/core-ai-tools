@@ -9,26 +9,18 @@ import { useCallback, useEffect, useState } from "react";
 import {
   AlertCircle,
   Clock,
-  Filter,
   ImageIcon,
   Layers,
   Loader2,
   Plus,
   Search,
-  Sparkles,
-  X,
 } from "lucide-react";
 
 import { apiGet, apiSend } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { SessionStepper } from "./SessionStepper";
 
 interface Session {
   sessionUuid: string;
@@ -41,13 +33,6 @@ interface Session {
   originDeliveryUrl?: string | null;
   revisionCount?: number;
   hasAwaitingApproval?: boolean;
-}
-
-interface LibraryImage {
-  id: string;
-  deliveryUrl: string;
-  originalFilename: string | null;
-  kind: string;
 }
 
 function variant(deliveryUrl?: string | null, name: string = "thumb"): string {
@@ -67,10 +52,6 @@ export function SessionsList() {
 
   // New Session Modal
   const [newModalOpen, setNewModalOpen] = useState(false);
-  const [libraryImages, setLibraryImages] = useState<LibraryImage[]>([]);
-  const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -88,31 +69,6 @@ export function SessionsList() {
   useEffect(() => {
     fetchSessions();
   }, [fetchSessions]);
-
-  // Load library images when opening modal
-  useEffect(() => {
-    if (newModalOpen) {
-      apiGet<{ images: LibraryImage[] }>("library/images")
-        .then((r) => setLibraryImages(r.images ?? []))
-        .catch(() => setLibraryImages([]));
-    }
-  }, [newModalOpen]);
-
-  const handleCreateSession = async () => {
-    if (!selectedImageId) return;
-    setCreating(true);
-    setCreateError(null);
-    try {
-      const res = await apiSend<{ sessionUuid: string }>("POST", "sessions", {
-        originLibraryImageId: selectedImageId,
-        createdVia: "ui",
-      });
-      window.location.href = `/sessions/${res.sessionUuid}`;
-    } catch (e) {
-      setCreateError(e instanceof Error ? e.message : "Failed to create session");
-      setCreating(false);
-    }
-  };
 
   const handleArchiveSession = async (uuid: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -352,86 +308,7 @@ export function SessionsList() {
         )}
       </div>
 
-      {/* New Session Modal */}
-      <Dialog open={newModalOpen} onOpenChange={setNewModalOpen}>
-        <DialogContent className="max-w-xl bg-card text-foreground ring-1 ring-border/40">
-          <DialogHeader>
-            <DialogTitle>Start a New Editing Session</DialogTitle>
-          </DialogHeader>
-
-          {createError && (
-            <div className="rounded-lg bg-destructive/15 p-3 text-xs text-destructive">
-              {createError}
-            </div>
-          )}
-
-          <div className="py-2 space-y-4">
-            <p className="text-xs text-muted-foreground">
-              Choose an origin image from your library to start a revision tree session:
-            </p>
-
-            {libraryImages.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-border/40 p-6 text-center">
-                <p className="text-xs text-muted-foreground">
-                  No images found in your library. Please upload a photo to the Library first.
-                </p>
-                <a
-                  href="/library"
-                  className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary underline hover:text-primary/90"
-                >
-                  Go to Library &rarr;
-                </a>
-              </div>
-            ) : (
-              <div className="grid grid-cols-4 gap-3 max-h-[300px] overflow-y-auto p-1">
-                {libraryImages.map((img) => {
-                  const isSelected = selectedImageId === img.id;
-                  return (
-                    <button
-                      key={img.id}
-                      onClick={() => setSelectedImageId(img.id)}
-                      className={`relative aspect-square overflow-hidden rounded-xl bg-background transition-all ${
-                        isSelected
-                          ? "ring-2 ring-primary scale-95"
-                          : "ring-1 ring-border/40 hover:ring-primary/40"
-                      }`}
-                    >
-                      <img
-                        src={variant(img.deliveryUrl, "thumb")}
-                        alt={img.originalFilename || ""}
-                        className="h-full w-full object-cover"
-                      />
-                      {isSelected && (
-                        <div className="absolute inset-0 bg-primary/20 flex items-center justify-center font-bold text-white text-lg">
-                          ✓
-                        </div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center justify-end gap-2 pt-4 border-t border-border/40">
-            <Button variant="ghost" onClick={() => setNewModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleCreateSession}
-              disabled={!selectedImageId || creating}
-              className="gap-2 bg-primary text-primary-foreground font-medium"
-            >
-              {creating ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Sparkles className="h-4 w-4" />
-              )}
-              Create Session
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <SessionStepper open={newModalOpen} onOpenChange={setNewModalOpen} />
     </div>
   );
 }

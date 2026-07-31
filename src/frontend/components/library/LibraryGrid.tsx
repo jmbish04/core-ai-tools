@@ -18,7 +18,6 @@ import {
   FolderPlus,
   Grid,
   ImageIcon,
-  Images,
   Loader2,
   Plus,
   Search,
@@ -40,6 +39,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { FolderTree } from "./FolderTree";
+import { SessionStepper } from "@/components/sessions/SessionStepper";
 
 function variant(deliveryUrl: string, name: string): string {
   if (!deliveryUrl) return "";
@@ -159,9 +160,13 @@ export function LibraryGrid() {
   const [moveModalOpen, setMoveModalOpen] = useState(false);
   const [targetMoveFolder, setTargetMoveFolder] = useState<string | null>(null);
 
-  const [starting, setStarting] = useState(false);
-  const [startError, setStartError] = useState<string | null>(null);
-  const [sessionName, setSessionName] = useState("");
+  const [stepperOpen, setStepperOpen] = useState(false);
+  const [stepperSeed, setStepperSeed] = useState<string[]>([]);
+  const openStepper = (imageIds: string[]) => {
+    setStepperSeed(imageIds);
+    setStepperOpen(true);
+  };
+
   const [badNotesDraft, setBadNotesDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const seq = useRef(0);
@@ -316,27 +321,6 @@ export function LibraryGrid() {
     }
   };
 
-  const handleStartSession = async (imageId: string) => {
-    const title = sessionName.trim();
-    if (!title) {
-      setStartError("A session name is required.");
-      return;
-    }
-    setStarting(true);
-    setStartError(null);
-    try {
-      const res = await apiSend<{ sessionUuid: string }>("POST", "sessions", {
-        originLibraryImageId: imageId,
-        title,
-        createdVia: "ui",
-      });
-      window.location.href = `/sessions/${res.sessionUuid}`;
-    } catch (e) {
-      setStartError(e instanceof Error ? e.message : "Failed to start session");
-      setStarting(false);
-    }
-  };
-
   const toggleSelect = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setSelected((prev) =>
@@ -358,6 +342,10 @@ export function LibraryGrid() {
 
   const activeFolderName =
     folders.find((f) => f.id === activeFolderId)?.name ?? "All images";
+
+  const doneTiles = tiles.filter((t) => t.status === "done");
+  const folderCounts: Record<string, number> = { __all__: doneTiles.length };
+  for (const f of folders) folderCounts[f.id] = doneTiles.filter((t) => t.folderId === f.id).length;
 
   return (
     <div className="flex max-w-7xl flex-col gap-6">
@@ -404,13 +392,6 @@ export function LibraryGrid() {
         </div>
       </div>
 
-      {startError && (
-        <div className="flex items-center gap-2 rounded-lg bg-destructive/15 p-3 text-sm text-destructive ring-1 ring-destructive/30">
-          <AlertCircle className="h-4 w-4" />
-          {startError}
-        </div>
-      )}
-
       {/* Main split: Folders sidebar + Image grid */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
         {/* Sidebar */}
@@ -430,56 +411,12 @@ export function LibraryGrid() {
             </Button>
           </div>
 
-          <button
-            onClick={() => setActiveFolderId(null)}
-            className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-              activeFolderId === null
-                ? "bg-muted text-foreground"
-                : "text-muted-foreground hover:bg-accent/10 hover:text-foreground"
-            }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <Images className="h-4 w-4 text-primary" />
-              <span>All images</span>
-            </div>
-            <span className="font-mono text-xs text-muted-foreground">
-              {tiles.filter((t) => t.status === "done").length}
-            </span>
-          </button>
-
-          <div className="mt-1 flex flex-col gap-1 border-t border-border/40 pt-2">
-            {folders.length === 0 ? (
-              <p className="px-3 py-2 text-xs text-muted-foreground italic">
-                No folders created yet.
-              </p>
-            ) : (
-              folders.map((folder) => {
-                const count = tiles.filter(
-                  (t) => t.folderId === folder.id && t.status === "done",
-                ).length;
-                const isActive = activeFolderId === folder.id;
-                return (
-                  <button
-                    key={folder.id}
-                    onClick={() => setActiveFolderId(folder.id)}
-                    className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors ${
-                      isActive
-                        ? "bg-muted font-medium text-foreground"
-                        : "text-muted-foreground hover:bg-accent/10 hover:text-foreground"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 truncate">
-                      <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate">{folder.name}</span>
-                    </div>
-                    <span className="font-mono text-xs text-muted-foreground shrink-0">
-                      {count}
-                    </span>
-                  </button>
-                );
-              })
-            )}
-          </div>
+          <FolderTree
+            folders={folders}
+            counts={folderCounts}
+            activeFolderId={activeFolderId}
+            onSelectFolder={setActiveFolderId}
+          />
         </div>
 
         {/* Content area */}
@@ -499,16 +436,13 @@ export function LibraryGrid() {
                 >
                   <Folder className="h-3.5 w-3.5" /> Move
                 </Button>
-                {selected.length === 1 && (
-                  <Button
-                    size="sm"
-                    onClick={() => handleStartSession(selected[0])}
-                    disabled={starting}
-                    className="h-8 gap-1.5 bg-primary text-primary-foreground"
-                  >
-                    <Sparkles className="h-3.5 w-3.5" /> Start Session
-                  </Button>
-                )}
+                <Button
+                  size="sm"
+                  onClick={() => openStepper(selected)}
+                  className="h-8 gap-1.5 bg-primary text-primary-foreground"
+                >
+                  <Sparkles className="h-3.5 w-3.5" /> Create session
+                </Button>
                 <Button
                   size="sm"
                   variant="destructive"
@@ -633,6 +567,22 @@ export function LibraryGrid() {
                             </button>
                           )}
 
+                          {/* Selected library-id badge (click to copy) */}
+                          {isSel && tile.id && (
+                            <span
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard?.writeText(tile.id!).catch(() => {});
+                              }}
+                              className={`absolute right-2.5 rounded bg-primary px-1.5 py-0.5 font-mono text-[9px] font-semibold text-primary-foreground ${
+                                tile.flaggedBadAt ? "top-8" : "top-2.5"
+                              }`}
+                              title="Click to copy library id"
+                            >
+                              {tile.id.slice(0, 8)}
+                            </span>
+                          )}
+
                           {/* Info overlay */}
                           <div className="absolute bottom-0 left-0 right-0 p-2.5 opacity-0 transition-opacity group-hover:opacity-100">
                             <p className="truncate font-mono text-xs font-medium text-white">
@@ -699,29 +649,12 @@ export function LibraryGrid() {
 
               {/* Action Button */}
               {detailTile.id && (
-                <div className="space-y-2">
-                  <label className="font-mono text-xs text-muted-foreground">
-                    Session name <span className="text-destructive">*</span>
-                  </label>
-                  <Input
-                    value={sessionName}
-                    onChange={(e) => setSessionName(e.target.value)}
-                    placeholder="e.g. Primary bath — spa remodel"
-                    className="bg-background ring-1 ring-border/40 text-sm"
-                  />
-                  <Button
-                    onClick={() => handleStartSession(detailTile.id!)}
-                    disabled={starting || !sessionName.trim()}
-                    className="w-full gap-2 bg-primary text-primary-foreground font-medium py-5"
-                  >
-                    {starting ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Sparkles className="h-4 w-4" />
-                    )}
-                    Start New Session From Photo
-                  </Button>
-                </div>
+                <Button
+                  onClick={() => openStepper([detailTile.id!])}
+                  className="w-full gap-2 bg-primary text-primary-foreground font-medium py-5"
+                >
+                  <Sparkles className="h-4 w-4" /> Start new session from photo
+                </Button>
               )}
 
               {/* Mark bad / undo */}
@@ -881,6 +814,8 @@ export function LibraryGrid() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <SessionStepper open={stepperOpen} onOpenChange={setStepperOpen} initialImageIds={stepperSeed} />
     </div>
   );
 }
