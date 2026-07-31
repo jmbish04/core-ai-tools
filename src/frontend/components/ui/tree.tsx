@@ -93,7 +93,7 @@ function TreeItem<T = any>({
   // Merge styles
   const mergedStyle = {
     ...propStyle,
-    "--tree-padding": `${item.getItemMeta().level * indent}px`,
+    "--tree-padding": `${(item.getItemMeta?.()?.level ?? 0) * indent}px`,
   } as React.CSSProperties
 
   const defaultProps = {
@@ -123,7 +123,8 @@ function TreeItem<T = any>({
       typeof item.isMatchingSearch === "function"
         ? item.isMatchingSearch() || false
         : undefined,
-    "aria-expanded": item.isExpanded(),
+    "aria-expanded":
+      typeof item.isExpanded === "function" ? item.isExpanded() : undefined,
   }
 
   return (

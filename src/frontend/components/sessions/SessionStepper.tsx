@@ -61,7 +61,12 @@ export function SessionStepper({ open, onOpenChange, initialImageIds = [] }: Ses
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Reset + choose starting step whenever the modal opens.
+  // A value-stable key for the seed so the reset effect re-runs when the seed
+  // CONTENT changes (not on every render — `initialImageIds` defaults to a fresh
+  // [] each render, which would otherwise wipe user input on every keystroke).
+  const seedKey = initialImageIds.join(",");
+
+  // Reset + choose starting step whenever the modal opens or the seed changes.
   useEffect(() => {
     if (!open) return;
     setIds(initialImageIds);
@@ -72,7 +77,8 @@ export function SessionStepper({ open, onOpenChange, initialImageIds = [] }: Ses
     setModelOverride("");
     setError(null);
     setStep(initialImageIds.length > 0 ? 2 : 1);
-  }, [open]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, seedKey]);
 
   useEffect(() => {
     if (!open) return;
@@ -144,7 +150,14 @@ export function SessionStepper({ open, onOpenChange, initialImageIds = [] }: Ses
         >
           <StepperNav className="gap-3">
             {STEPS.map((s, i) => (
-              <StepperItem key={s.title} step={i + 1} className="relative flex-1 items-start">
+              <StepperItem
+                key={s.title}
+                step={i + 1}
+                // Gate the tab headers so a user can't jump ahead of the
+                // requirements: step 2 needs ≥1 image, step 3 needs a valid draft.
+                disabled={i === 1 ? !canNextFrom1 : i === 2 ? !canCreate : false}
+                className="relative flex-1 items-start"
+              >
                 <StepperTrigger className="flex grow flex-col items-start gap-2">
                   <StepperIndicator className="size-8 border-2">{s.icon}</StepperIndicator>
                   <StepperTitle className="text-sm font-semibold">{s.title}</StepperTitle>

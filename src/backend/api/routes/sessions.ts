@@ -28,14 +28,18 @@ sessionsRouter.openapi(
         content: {
           "application/json": {
             schema: z.object({
-              originLibraryImageId: z.string(),
-              title: z.string().nullish(),
+              originLibraryImageId: z.string().max(64),
+              title: z.string().max(200).nullish(),
               approvalPolicy: z.enum(["auto", "masked_only", "always"]).optional(),
               createdVia: z.enum(["ui", "api", "mcp"]).optional(),
+              // Bounded at the trust boundary: a session's reference pool is small
+              // (models take ≤14 refs); 50 is generous headroom, not a real limit.
               references: z
-                .array(z.object({ imageId: z.string(), role: z.enum(["object", "style"]) }))
+                .array(z.object({ imageId: z.string().max(64), role: z.enum(["object", "style"]) }))
+                .max(50)
                 .optional(),
-              modelOverrides: z.record(z.string(), z.string()).optional(),
+              // Overrides are keyed by task_key (a handful) → small, bounded record.
+              modelOverrides: z.record(z.string().max(64), z.string().max(256)).optional(),
             }),
           },
         },

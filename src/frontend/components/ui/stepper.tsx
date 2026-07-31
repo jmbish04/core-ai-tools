@@ -30,7 +30,7 @@ interface StepperContextValue {
   setActiveStep: (step: number) => void
   stepsCount: number
   orientation: StepperOrientation
-  registerTrigger: (node: HTMLButtonElement | null) => void
+  registerTrigger: (step: number, node: HTMLButtonElement | null) => void
   triggerNodes: HTMLButtonElement[]
   focusNext: (currentIdx: number) => void
   focusPrev: (currentIdx: number) => void
@@ -83,19 +83,22 @@ function Stepper({
 }: StepperProps) {
   const [activeStep, setActiveStep] = useState(defaultValue)
   const [triggerNodes, setTriggerNodes] = useState<HTMLButtonElement[]>([])
+  const triggerMapRef = useRef<Map<number, HTMLButtonElement>>(new Map())
 
-  // Register/unregister triggers
-  const registerTrigger = useCallback((node: HTMLButtonElement | null) => {
-    setTriggerNodes((prev) => {
-      if (node && !prev.includes(node)) {
-        return [...prev, node]
-      } else if (!node && prev.includes(node!)) {
-        return prev.filter((n) => n !== node)
-      } else {
-        return prev
-      }
-    })
-  }, [])
+  // Register/unregister triggers by step id. Keyed by step (not by identity of a
+  // possibly-null node) so unmount reliably removes the entry — no stale DOM
+  // refs leaked into `triggerNodes`. The exposed array is ordered by step.
+  const registerTrigger = useCallback(
+    (step: number, node: HTMLButtonElement | null) => {
+      const map = triggerMapRef.current
+      if (node) map.set(step, node)
+      else map.delete(step)
+      setTriggerNodes(
+        [...map.entries()].sort((a, b) => a[0] - b[0]).map(([, n]) => n),
+      )
+    },
+    [],
+  )
 
   const handleSetActiveStep = useCallback(
     (step: number) => {
@@ -212,6 +215,9 @@ function StepperItem({
   )
 }
 
+// Consumed by Stepper's `stepsCount` (filters children by this displayName).
+StepperItem.displayName = "StepperItem"
+
 type StepperTriggerProps = useRender.ComponentProps<"button">
 
 function StepperTrigger({
@@ -238,13 +244,13 @@ function StepperTrigger({
   const id = `stepper-tab-${step}`
   const panelId = `stepper-panel-${step}`
 
-  // Register this trigger for keyboard navigation
+  // Register this trigger for keyboard navigation; unregister on unmount so
+  // `triggerNodes` never retains a detached DOM node.
   const btnRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
-    if (btnRef.current) {
-      registerTrigger(btnRef.current)
-    }
-  }, [btnRef.current])
+    registerTrigger(step, btnRef.current)
+    return () => registerTrigger(step, null)
+  }, [step, registerTrigger])
 
   // Find our index among triggers for navigation
   const myIdx = useMemo(

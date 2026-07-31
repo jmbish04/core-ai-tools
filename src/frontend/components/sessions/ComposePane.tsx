@@ -79,25 +79,27 @@ export function ComposePane({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Seed the reference pool from the session's persisted references exactly
-  // once — guarded so later re-renders / WS-driven refetches of the parent
-  // don't clobber the user's in-progress edits to the picker.
-  const seededRef = useRef(false);
+  // Seed the reference pool from the session's persisted references once PER
+  // SESSION — guarded so later re-renders / WS-driven refetches don't clobber
+  // the user's in-progress edits, but a switch to a different session (if the
+  // pane is reused without remount) re-seeds from the new pool.
+  const seededSessionRef = useRef<string | null>(null);
   useEffect(() => {
-    if (seededRef.current) return;
-    const pool = (initialReferences ?? []).filter((r) => r.role !== "base");
-    if (pool.length) {
-      setReferences(
-        pool.map((r) => ({
-          imageId: r.image.id,
-          role: r.role as "object" | "style",
-          thumbUrl: r.image.deliveryUrl.replace(/\/[^/]+$/, "/thumb"),
-          label: r.image.originalFilename,
-        })),
-      );
-      seededRef.current = true;
-    }
-  }, [initialReferences]);
+    if (seededSessionRef.current === sessionUuid) return;
+    // Wait for the parent to actually deliver this session's view before
+    // marking it seeded (the first render passes `undefined` while it fetches).
+    if (initialReferences === undefined) return;
+    const pool = initialReferences.filter((r) => r.role !== "base");
+    setReferences(
+      pool.map((r) => ({
+        imageId: r.image.id,
+        role: r.role as "object" | "style",
+        thumbUrl: r.image.deliveryUrl.replace(/\/[^/]+$/, "/thumb"),
+        label: r.image.originalFilename,
+      })),
+    );
+    seededSessionRef.current = sessionUuid;
+  }, [initialReferences, sessionUuid]);
 
   // Fetch available models from registry. Deprecated models are kept in the
   // registry (history/fallback) but hidden from the picker.
