@@ -1,0 +1,63 @@
+---
+/**
+ * @fileoverview ShellLayout — the layout every product route uses.
+ *
+ * Wraps the page body in the ReUI `app-shell-22` shell (see components/AppShell.tsx).
+ * Dark is the default and the only default (`~/AGENTS-frontend.md`): the class is on
+ * `<html>` at first paint, and the inline script only reads a stored preference —
+ * it never falls back to the OS, which is what the old BaseLayout did and is how a
+ * dark-first app ends up rendering light.
+ *
+ * The shell is an island: `client:load` hydrates the rail, drawer and pill, while
+ * `<slot />` is server-rendered HTML handed to it as children, so a page ships no
+ * more JavaScript than its own islands need.
+ */
+import HeadSEO from "@/components/HeadSEO.astro";
+import { AppShell } from "@/components/AppShell";
+import type { HeroSlide, NavRecord } from "@/components/blocks/app-shell-22/components/data";
+
+interface Props {
+  title: string;
+  description?: string;
+  /** Rail section id: folders | assets | compare | new | models | docs | settings. */
+  section?: string;
+  /** The section's sub-views, rendered in the pill nav. */
+  subnav?: NavRecord[];
+  subnavCurrent?: string;
+  /** Hero band pictures — pass the user's own images where the page has them. */
+  hero?: HeroSlide[];
+}
+
+const { title, description, section = "folders", subnav = [], subnavCurrent = "", hero } =
+  Astro.props;
+---
+
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <HeadSEO title={title} description={description} />
+    <script is:inline>
+      // Dark unless the user explicitly chose light in this browser.
+      (() => {
+        try {
+          document.documentElement.classList.toggle(
+            "dark",
+            localStorage.getItem("theme") !== "light",
+          );
+        } catch {}
+      })();
+    </script>
+  </head>
+  <body class="bg-muted text-foreground overscroll-none antialiased">
+    <AppShell
+      client:load
+      section={section}
+      subnav={subnav}
+      subnavCurrent={subnavCurrent}
+      hero={hero}
+      title={title}
+    >
+      <slot />
+    </AppShell>
+  </body>
+</html>
