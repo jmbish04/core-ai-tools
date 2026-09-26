@@ -32,11 +32,17 @@ export interface ImageUrls {
   thumbUrl: string | null;
   /** Full-size delivery URL. */
   imageUrl: string | null;
+  /**
+   * The short copyable handle (`img_…`), or null on a row that predates the
+   * column. Carried alongside the URLs so a model can refer to the image by the
+   * SAME id the user sees and copies in the UI.
+   */
+  publicId: string | null;
 }
 
-const EMPTY: ImageUrls = { thumbUrl: null, imageUrl: null };
+const EMPTY: ImageUrls = { thumbUrl: null, imageUrl: null, publicId: null };
 
-type UrlRow = Pick<LibraryImage, "cfImageId" | "mediaType" | "deliveryUrl">;
+type UrlRow = Pick<LibraryImage, "cfImageId" | "mediaType" | "deliveryUrl" | "publicId">;
 
 /**
  * THE single URL-construction point. Images resolve to thumb+full CF Images
@@ -49,12 +55,13 @@ function urlsFromRow(hash: string, base: string, row: UrlRow): ImageUrls {
         ? row.deliveryUrl
         : `${base}${row.deliveryUrl}`
       : null;
-    return { thumbUrl: null, imageUrl: u };
+    return { thumbUrl: null, imageUrl: u, publicId: row.publicId };
   }
-  if (!row.cfImageId) return EMPTY;
+  if (!row.cfImageId) return { ...EMPTY, publicId: row.publicId };
   return {
     thumbUrl: buildVariantUrl(hash, row.cfImageId, IMAGE_VARIANTS.THUMB),
     imageUrl: buildVariantUrl(hash, row.cfImageId, IMAGE_VARIANTS.FULL),
+    publicId: row.publicId,
   };
 }
 
@@ -78,12 +85,15 @@ export async function resolveImageUrls(
       cfImageId: libraryImages.cfImageId,
       mediaType: libraryImages.mediaType,
       deliveryUrl: libraryImages.deliveryUrl,
+      publicId: libraryImages.publicId,
     })
     .from(libraryImages)
     .where(inArray(libraryImages.id, uniq));
 
   const hash = await getImagesAccountHash(ctx.env);
-  for (const r of rows) map.set(r.id, hash ? urlsFromRow(hash, base, r) : EMPTY);
+  // No account hash → no URLs, but the public id is stored on the row and is
+  // still the caller's handle, so never drop it with the URLs.
+  for (const r of rows) map.set(r.id, hash ? urlsFromRow(hash, base, r) : { ...EMPTY, publicId: r.publicId });
   return map;
 }
 
@@ -160,7 +170,13 @@ export async function serializeLibrary(
   base: string,
 ): Promise<unknown[]> {
   const hash = await getImagesAccountHash(ctx.env);
-  return rows.map((r) => ({ ...r, ...(hash ? urlsFromRow(hash, base, r) : EMPTY) }));
+  // `public_id` is emitted in snake_case alongside the row's own camelCase
+  // `publicId` because MCP callers read the snake_case contract (§4.2).
+  return rows.map((r) => ({
+    ...r,
+    ...(hash ? urlsFromRow(hash, base, r) : { ...EMPTY, publicId: r.publicId }),
+    public_id: r.publicId,
+  }));
 }
 
 // ---------------------------------------------------------------------------

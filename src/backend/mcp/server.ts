@@ -12,7 +12,10 @@ import { z } from "zod";
 
 import {
   approveRevision,
+  archiveAsset,
+  restoreAsset,
   cancelRevision,
+  createAsset,
   createCoreContext,
   createFolder,
   createMask,
@@ -31,12 +34,19 @@ import {
   MAX_GENERATE_COUNT,
   VARIATION_SUFFIXES,
   gradeRevision,
+  listAssetIterations,
+  listAssets,
+  listFolders,
   listLibrary,
   listMasks,
   listMcpLogs,
   listSessions,
   listSessionsForImage,
   listTemplates,
+  moveFolder,
+  promoteImageToAsset,
+  requireImageByPublicId,
+  resolveSettings,
   sniffRevisionId,
   startMcpLog,
   pinRevision,
@@ -46,6 +56,9 @@ import {
   setAssetTtl,
   softDeleteMask,
   submitEdit,
+  updateAsset,
+  updateFolderSettings,
+  updateImageMetadata,
   getSessionTree,
 } from "@/backend/core";
 import type { CoreContext } from "@/backend/core";
@@ -81,6 +94,18 @@ interface ToolDef {
   handler: (ctx: CoreContext, args: Record<string, unknown>, host: string) => Promise<unknown>;
   /** Handler returns MCP content blocks directly (e.g. image blocks) — not JSON. */
   raw?: boolean;
+}
+
+/**
+ * Drop keys whose value is `undefined`, KEEPING nulls.
+ *
+ * The metadata/settings core functions decide what to touch with `"key" in input`,
+ * and `null` is a meaningful value there ("clear this, inherit/derive again"). A
+ * validated args object that materialises an absent optional key as `undefined`
+ * would therefore clear fields the caller never mentioned.
+ */
+function definedKeys(obj: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined));
 }
 
 /** Wrap a revision result in the §4.2 compact payload. */
@@ -366,9 +391,136 @@ const TOOLS: Record<string, ToolDef> = {
     handler: (ctx, a) => unflagImageBad(ctx, a.libraryImageId as string),
   },
   create_folder: {
-    description: "Create a library folder.",
-    schema: z.object({ name: z.string(), parentFolderId: z.string().optional() }),
+    description:
+      "Create a library folder. Pass parentFolderId to nest it inside another folder (folders nest to any depth); omit it for a root folder. A child folder inherits its ancestors' settings — see get_folder_settings.",
+    schema: z.object({ name: z.string(), parentFolderId: z.string().nullish() }),
     handler: (ctx, a) => createFolder(ctx, a as any),
+  },
+  list_folders: {
+    description:
+      "List library folders (they nest to any depth). Omit parentFolderId for EVERY folder (flat — build the tree from parentFolderId); pass null for root folders only; pass an id for that folder's direct children.",
+    schema: z.object({ parentFolderId: z.string().nullish() }),
+    handler: (ctx, a) =>
+      listFolders(ctx, "parentFolderId" in definedKeys(a) ? { parentFolderId: a.parentFolderId as string | null } : undefined),
+  },
+  move_folder: {
+    description:
+      "Re-parent a folder (parentFolderId null = move to the library root). Refused if the target is the folder itself or one of its own descendants (that would make a cycle).",
+    schema: z.object({ folderId: z.string(), parentFolderId: z.string().nullable() }),
+    handler: (ctx, a) =>
+      moveFolder(ctx, { folderId: a.folderId as string, newParentId: a.parentFolderId as string | null }),
+  },
+  get_folder_settings: {
+    description:
+      "Effective settings for a folder (defaultPrompt, contextText, useCase, preferredModels, approvalPolicy). Each comes back as { value, fromFolderId, inherited } so you can tell a value set HERE from one inherited from an ancestor, plus ancestorPath (folder first, root last). Read this before composing a prompt for an image in that folder — contextText and defaultPrompt are standing instructions from the user.",
+    schema: z.object({ folderId: z.string() }),
+    handler: (ctx, a) => resolveSettings(ctx, a.folderId as string),
+  },
+  set_folder_settings: {
+    description:
+      "Write a folder's own settings. Send null for a setting to CLEAR it, which makes the folder inherit that setting from its nearest ancestor again; omit a key to leave it untouched. Returns the resolved (post-write) view. preferredModels is advisory — task_model_defaults stays authoritative for model resolution.",
+    schema: z.object({
+      folderId: z.string(),
+      defaultPrompt: z.string().nullish(),
+      contextText: z.string().nullish(),
+      useCase: z.string().nullish(),
+      preferredModels: z.array(z.string()).nullish(),
+      approvalPolicy: z.enum(["auto", "masked_only", "always"]).nullish(),
+    }),
+    handler: async (ctx, a) => {
+      const { folderId, ...rest } = a as { folderId: string } & Record<string, unknown>;
+      await updateFolderSettings(ctx, folderId, definedKeys(rest));
+      return resolveSettings(ctx, folderId);
+    },
+  },
+  update_image_metadata: {
+    description:
+      "Edit a library image's human metadata: title, description, usageInstructions (how it should be used in an edit), contextText (standing context about it), role (base|reference|inject). Send null to clear a field; omit a key to leave it alone. Returns the updated row with its urls and public_id.",
+    schema: z.object({
+      libraryImageId: z.string(),
+      title: z.string().nullish(),
+      description: z.string().nullish(),
+      usageInstructions: z.string().nullish(),
+      contextText: z.string().nullish(),
+      role: z.enum(["base", "reference", "inject"]).nullish(),
+    }),
+    handler: async (ctx, a, host) => {
+      const { libraryImageId, ...rest } = a as { libraryImageId: string } & Record<string, unknown>;
+      const row = await updateImageMetadata(ctx, { imageId: libraryImageId, ...definedKeys(rest) });
+      return (await serializeLibrary(ctx, [row], `https://${host}`))[0];
+    },
+  },
+  get_image_by_public_id: {
+    description:
+      "Resolve the short handle a user copied out of the UI (`img_…`) to its library image, with urls. Use this whenever the user pastes an id instead of naming an image. Errors (never returns empty) if no live image carries that id.",
+    schema: z.object({ publicId: z.string() }),
+    handler: async (ctx, a, host) =>
+      (await serializeLibrary(ctx, [await requireImageByPublicId(ctx, a.publicId as string)], `https://${host}`))[0],
+  },
+  create_asset: {
+    description:
+      "Make an already-registered library image an ASSET — a thing the user returns to (a material, a fixture, a product shot) whose every iteration is tracked. Errors if that image is already an asset (the existing asset id is in the message).",
+    schema: z.object({
+      libraryImageId: z.string(),
+      name: z.string().optional(),
+      description: z.string().nullish(),
+      usageInstructions: z.string().nullish(),
+      contextText: z.string().nullish(),
+    }),
+    handler: (ctx, a) => createAsset(ctx, { ...(definedKeys(a) as any) }),
+  },
+  promote_image_to_asset: {
+    description:
+      "Promote an EXISTING library image into an asset. The image row is copied (same pixels, new row, fresh public_id) and the asset records what it was promoted from, so the original stays untouched in its folder. Returns { asset, libraryImage } — the copy is the asset's backing image.",
+    schema: z.object({
+      imageId: z.string(),
+      name: z.string().optional(),
+      folderId: z.string().nullish(),
+      description: z.string().nullish(),
+      usageInstructions: z.string().nullish(),
+      contextText: z.string().nullish(),
+    }),
+    handler: (ctx, a) => promoteImageToAsset(ctx, { ...(definedKeys(a) as any) }),
+  },
+  list_assets: {
+    description: "List assets, newest first. Archived assets are excluded unless includeArchived is true.",
+    schema: z.object({
+      includeArchived: z.boolean().optional(),
+      limit: z.number().int().optional(),
+      offset: z.number().int().optional(),
+    }),
+    handler: async (ctx, a) => ({ assets: await listAssets(ctx, a as any) }),
+  },
+  list_asset_iterations: {
+    description:
+      "Every image this asset ever produced, oldest first — the flat timeline. Each row carries the produced image (id, public_id, delivery url), the folder it landed in, and the session/revision that made it. Group by folderId or sessionUuid yourself; the rows are already in timeline order.",
+    schema: z.object({ assetId: z.string(), limit: z.number().int().optional(), offset: z.number().int().optional() }),
+    handler: async (ctx, a) => ({
+      iterations: await listAssetIterations(ctx, a.assetId as string, a as any),
+    }),
+  },
+  update_asset: {
+    description:
+      "Rename an asset and/or edit its metadata (description, usageInstructions, contextText). Send null to clear a metadata field; omit a key to leave it alone.",
+    schema: z.object({
+      assetId: z.string(),
+      name: z.string().optional(),
+      description: z.string().nullish(),
+      usageInstructions: z.string().nullish(),
+      contextText: z.string().nullish(),
+    }),
+    handler: (ctx, a) => updateAsset(ctx, { ...(definedKeys(a) as any) }),
+  },
+  archive_asset: {
+    description:
+      "Archive an asset so it drops out of the default list. Idempotent, and never a delete — the iterations it produced stay in history.",
+    schema: z.object({ assetId: z.string() }),
+    handler: (ctx, a) => archiveAsset(ctx, a.assetId as string),
+  },
+  restore_asset: {
+    description: "Undo an archive — the asset returns to the default list. Idempotent.",
+    schema: z.object({ assetId: z.string() }),
+    handler: (ctx, a) => restoreAsset(ctx, a.assetId as string),
   },
   list_available_models: {
     description: "Registry ids, capabilities, cost — drives model selection.",

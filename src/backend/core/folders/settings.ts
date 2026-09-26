@@ -20,6 +20,7 @@ import { eq, sql } from "drizzle-orm";
 import { libraryFolders } from "@/backend/db/schema";
 import type { LibraryFolder } from "@/backend/db/schema";
 import type { CoreContext } from "../context";
+import { notifyFolder } from "../library/notify";
 import { NotFoundError, ValidationError } from "../errors";
 import { requireFolder } from "../library/folders";
 
@@ -191,6 +192,13 @@ export async function updateFolderSettings(
     .set(patch)
     .where(eq(libraryFolders.id, folderId))
     .returning();
+  // Only the keys that moved: values are re-read from the API, because the DO is
+  // fan-out and D1 is the truth.
+  await notifyFolder(ctx, {
+    type: "folder_settings_changed",
+    folderId,
+    changed: Object.keys(patch).filter((k) => k !== "updatedAt"),
+  });
   return row;
 }
 

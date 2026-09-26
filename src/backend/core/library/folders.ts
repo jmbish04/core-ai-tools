@@ -13,6 +13,7 @@ import { eq, isNull } from "drizzle-orm";
 import { libraryFolders } from "@/backend/db/schema";
 import type { LibraryFolder } from "@/backend/db/schema";
 import type { CoreContext } from "../context";
+import { notifyFolder, notifyFolderBoth } from "./notify";
 import { NotFoundError, ValidationError } from "../errors";
 
 /** Create a folder. `parentFolderId = null` (default) makes it a root folder. */
@@ -31,6 +32,21 @@ export async function createFolder(
     .insert(libraryFolders)
     .values({ name, parentFolderId: input.parentFolderId ?? null })
     .returning();
+  // Into its own channel, and into the parent's — an open parent view gains a child.
+  await notifyFolder(ctx, {
+    type: "folder_created",
+    folderId: row.id,
+    name: row.name,
+    parentFolderId: row.parentFolderId,
+  });
+  if (row.parentFolderId) {
+    await notifyFolder(ctx, {
+      type: "folder_created",
+      folderId: row.parentFolderId,
+      name: row.name,
+      parentFolderId: row.parentFolderId,
+    });
+  }
   return row;
 }
 
@@ -48,6 +64,7 @@ export async function renameFolder(
     .set({ name, updatedAt: new Date() })
     .where(eq(libraryFolders.id, input.folderId))
     .returning();
+  await notifyFolder(ctx, { type: "folder_renamed", folderId: row.id, name: row.name });
   return row;
 }
 
@@ -60,7 +77,9 @@ export async function moveFolder(
   ctx: CoreContext,
   input: { folderId: string; newParentId: string | null },
 ): Promise<LibraryFolder> {
-  await requireFolder(ctx, input.folderId);
+  // Read BEFORE the write: the updated row carries only the new parent, and the
+  // old parent's open view needs to hear about losing the child.
+  const before = await requireFolder(ctx, input.folderId);
 
   if (input.newParentId !== null) {
     if (input.newParentId === input.folderId) {
@@ -90,6 +109,16 @@ export async function moveFolder(
     .set({ parentFolderId: input.newParentId, updatedAt: new Date() })
     .where(eq(libraryFolders.id, input.folderId))
     .returning();
+  const moved = {
+    type: "folder_moved" as const,
+    fromParentId: before.parentFolderId,
+    toParentId: row.parentFolderId,
+  };
+  await notifyFolderBoth(ctx, before.parentFolderId, row.parentFolderId, (folderId) => ({
+    ...moved,
+    folderId,
+  }));
+  await notifyFolder(ctx, { ...moved, folderId: row.id });
   return row;
 }
 

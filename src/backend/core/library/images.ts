@@ -15,6 +15,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { libraryImages, shortPublicId } from "@/backend/db/schema";
 import type { LibraryImage } from "@/backend/db/schema";
 import type { CoreContext } from "../context";
+import { notifyFolder, notifyFolderBoth } from "./notify";
 import { NotFoundError, ValidationError } from "../errors";
 import { requireFolder } from "./folders";
 
@@ -83,6 +84,9 @@ export async function registerImage(
       uploadedVia: input.uploadedVia ?? "ui",
     })
     .returning();
+  if (row.folderId) {
+    await notifyFolder(ctx, { type: "image_added", folderId: row.folderId, imageId: row.id });
+  }
   return row;
 }
 
@@ -117,7 +121,9 @@ export async function moveImage(
   ctx: CoreContext,
   input: { imageId: string; folderId: string | null },
 ): Promise<LibraryImage> {
-  await requireImage(ctx, input.imageId);
+  // Read BEFORE the write: the updated row carries only the destination folder,
+  // so without this the source view never hears that it lost the image.
+  const before = await requireImage(ctx, input.imageId);
   if (input.folderId) {
     await requireFolder(ctx, input.folderId);
   }
@@ -126,6 +132,13 @@ export async function moveImage(
     .set({ folderId: input.folderId })
     .where(eq(libraryImages.id, input.imageId))
     .returning();
+  await notifyFolderBoth(ctx, before.folderId, row.folderId, (folderId) => ({
+    type: "image_moved",
+    folderId,
+    imageId: row.id,
+    fromFolderId: before.folderId,
+    toFolderId: row.folderId,
+  }));
   return row;
 }
 
@@ -137,6 +150,9 @@ export async function softDeleteImage(ctx: CoreContext, imageId: string): Promis
     .set({ deletedAt: new Date() })
     .where(eq(libraryImages.id, imageId))
     .returning();
+  if (row.folderId) {
+    await notifyFolder(ctx, { type: "image_removed", folderId: row.folderId, imageId: row.id });
+  }
   return row;
 }
 
@@ -231,6 +247,14 @@ export async function updateImageMetadata(
     .set(patch)
     .where(eq(libraryImages.id, input.imageId))
     .returning();
+  if (row.folderId) {
+    await notifyFolder(ctx, {
+      type: "image_metadata_changed",
+      folderId: row.folderId,
+      imageId: row.id,
+      changed: Object.keys(patch),
+    });
+  }
   return row;
 }
 
