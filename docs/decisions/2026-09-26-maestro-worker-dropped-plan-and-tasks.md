@@ -57,6 +57,36 @@ I have not tried to repair it myself: a blind re-file could collide with whateve
 reconciler does on its next pass, and a project-shaped hole in the control plane is
 worth understanding before it is papered over.
 
+## Update, ~90 minutes later — the diagnosis above was incomplete
+
+Watching it for another hour showed a cycle, not a one-off deletion:
+
+1. All 27 tasks came back on their own, from the local mirror — but **stripped**: no plan
+   links, no worklog entries, no claim.
+2. I re-filed the plan as `6f2df993d527` and relinked the epics to it. That worked.
+3. A cycle later, `6f2df993d527` was gone and the ORIGINAL `40b751e01189` was back,
+   alive, at revision 1, with all 27 tasks linked to its sections again.
+4. My task status updates were reverted with it: ten tasks I had marked `done` were
+   `backlog` again. Re-applying them worked, and one (`W1.1`) still errored.
+
+So the earlier claim in this file — "plans are not mirrored" — is **wrong**, and I am
+correcting it rather than leaving it to mislead. What the evidence actually shows is that
+the local mirror periodically pushes its own snapshot over the Worker, and that snapshot
+wins: Worker-side writes it does not know about are reverted (my statuses, my new plan),
+and rows it still holds are restored (the "deleted" plan and tasks). The first symptom —
+a whole project vanishing — fits a push from a moment when the mirror had never heard of
+`core-ai-tools`, because the project was created Worker-side.
+
+That makes this worse than a lost record, and worth saying plainly: **a write through the
+documented door can be silently undone minutes later.** Every agent on this machine files
+status through that door and then moves on. Nothing errors. The only way to notice is to
+re-read what you wrote, which nobody does.
+
+It also puts `~/AGENTS-maestro.md` in a bind it does not acknowledge: it says the Worker
+is the source of truth and to never write tracking state through the local server — but
+in practice the local mirror is overwriting the Worker, and the local server cannot send
+a plan heading, which the Worker now requires.
+
 ## The question
 
 Do you want this chased in the `colby-maestro` repo now, and how should I re-file this
@@ -64,24 +94,25 @@ project's plan in the meantime?
 
 ## Options
 
-1. **(Recommended) Re-file into the Worker, then verify it survives two reconcile
-   cycles (~10 min), and open a bug in `colby-maestro` with this evidence.** Cheap,
-   restores the plan, and the verification step is the thing that was missing the first
-   time. If it vanishes again, that is a reproducible bug with a timestamped trail.
-2. **Leave the records in the local mirror and let the reconciler push them up.** Zero
-   work, but it assumes mirror→Worker replication works for a project the Worker has
-   never heard of — which is precisely what is in doubt.
-3. **Treat the local mirror as authoritative for this project and stop writing to the
-   Worker for it.** Fastest, and wrong in the long run: it is the drift
-   `~/AGENTS-maestro.md` exists to prevent, and no other session or device would see
-   the work.
+1. **(Recommended) Fix the reconciler in `colby-maestro` so a mirror push cannot revert
+   a newer Worker write, and open a bug with this timeline.** The mirror's job is to keep
+   an agent from blocking on a round trip, not to arbitrate truth. A per-row
+   `updated_at` comparison in the push direction — or simply not deleting Worker rows the
+   mirror has never seen — would close both symptoms. This is the only option that makes
+   "it is in Maestro" mean something again, for every project, not just this one.
+2. **Make the reconciler one-way (Worker → mirror only) until that lands.** Smaller, and
+   it stops the data loss immediately, but any work an agent files while the Worker is
+   unreachable would then be dropped rather than replayed.
+3. **Live with it and re-read after every write.** Zero work on the control plane, and it
+   pushes the cost onto every agent forever — including the ones that will not remember
+   to check.
 
 ## What I will do if you say nothing
 
-Option 1, minus the bug report: re-file the plan and the 27 tasks into the Worker and
-re-read them after two reconcile cycles. If they hold, I carry on and mention it. If
-they vanish again, I stop writing to the Worker for this project and tell you, rather
-than filing the same records a third time.
+Nothing further to the control plane. The plan and all 27 tasks are currently alive on
+the Worker at `40b751e01189`, linked and with Wave 1-2 marked done. I will keep filing
+status there as normal, and I will re-read after each batch — but I will not re-file a
+third copy of anything, because a second plan is how this project ended up with two.
 
 ## Decision
 
