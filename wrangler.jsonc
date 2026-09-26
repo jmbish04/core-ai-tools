@@ -76,7 +76,19 @@
   // Cloudflare error 1042 (loopback restriction) — the binding routes internally
   // instead. See backend/ai/dispatch/guardian.ts.
   "services": [
-    { "binding": "GUARDIAN", "service": "core-guardian" }
+    // RPC door into core-guardian's AI router (GuardianRpc entrypoint). A service
+    // binding IS the trust boundary there, so this needs no token — unlike the
+    // HTTP /api/ai-router/run route, which wants CLOUDFLARE_AI_GATEWAY_TOKEN.
+    { "binding": "GUARDIAN", "service": "core-guardian", "entrypoint": "GuardianRpc" },
+    // Plain default-export fetcher, for guardian's REST surface
+    // (POST /api/guardian/usage/register). Separate binding because naming an
+    // entrypoint above changes what .fetch() on GUARDIAN resolves to.
+    { "binding": "GUARDIAN_HTTP", "service": "core-guardian" },
+    // Self-binding: the code-mode MCP sandbox (a dynamically-loaded isolate with
+    // NO bindings of its own) calls back into POST /internal/mcp-tool through it.
+    // A service binding, not a public fetch — a Worker fetching its own hostname
+    // is error 1042.
+    { "binding": "SELF", "service": "core-ai-tools" }
   ],
   // Cron maintenance (see src/_worker.ts `scheduled`): every 5 min, reap
   // revisions stuck in queued/running past the timeout and drain the guardian

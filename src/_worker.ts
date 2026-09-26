@@ -25,6 +25,7 @@ import { routeAgentRequest } from "agents";
 import { app as honoApp } from "./backend/api/index";
 import { handleInboundEmail } from "./backend/email/inbound";
 import { buildOAuthHandler } from "./backend/mcp/oauth";
+import { handleInternalToolCall } from "./backend/mcp/server";
 import { verifySessionCookie } from "./backend/lib/cookies";
 import { createCoreContext, reapStuckRevisions } from "./backend/core";
 import { drainUsageOutbox } from "./backend/ai/dispatch";
@@ -116,6 +117,14 @@ const base = {
     // NOTE: `/mcp` + the OAuth endpoints (/authorize, /token, /register,
     // /.well-known/*) are handled by the OAuthProvider that wraps THIS handler.
     // They never reach here.
+
+    // 1a. Code-mode sandbox channel. Reached ONLY over this Worker's own SELF
+    // service binding from a dynamically-loaded isolate, and authorised by the
+    // per-execution nonce the `execute` tool minted (never the API key). Declared
+    // before the API/page gates because it is neither.
+    if (url.pathname === "/internal/mcp-tool") {
+      return handleInternalToolCall(request, env);
+    }
 
     // 1b. SessionDO realtime WebSocket: /ws/session/:uuid. A genuine raw-request
     // proxy (forwarding the caller's WS upgrade) — the sanctioned use of

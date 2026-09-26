@@ -52,6 +52,14 @@ export interface ProviderResult {
   thinkingImages?: ArrayBuffer[];
   /** Whether masked editing was emulated (composited) rather than native. */
   maskEmulated?: boolean;
+  /** Set by an adapter that routed the call through core-guardian's AI router. */
+  servedVia?: "gateway" | "direct" | "guardian";
+  /**
+   * True when core-guardian already metered this call (its router prices and
+   * records spend itself). The dispatch wrapper then SKIPS `emitUsage`, so the
+   * call is counted once, not twice.
+   */
+  meteredByGuardian?: boolean;
 }
 
 /** One implementation per provider. */

@@ -51,6 +51,7 @@ import {
 import type { CoreContext } from "@/backend/core";
 import { listModels } from "@/backend/ai/registry";
 import { buildMcpEditPayload } from "./payload";
+import { EXECUTE_CONVENTION, isValidSandboxNonce, runScript } from "./codemode";
 import {
   imageContentBlock,
   maskImageBlock,
@@ -67,6 +68,10 @@ import {
 // and the WORKER_API_KEY bearer is accepted via the `resolveExternalToken`
 // callback (see backend/mcp/oauth.ts). So `handleMcp` here assumes the request is
 // already authenticated and just dispatches.
+
+/** Public host used to build deep links for a sandbox-originated tool call (which
+ *  has no inbound Request of its own to read the host from). */
+const MCP_PUBLIC_HOST = "core-ai-tools.hacolby.workers.dev";
 
 const SESSION_NOTE = "Session-scoped; results appear in the web UI in realtime.";
 
@@ -405,6 +410,149 @@ const TOOLS: Record<string, ToolDef> = {
   },
 };
 
+/** First sentence of a description — the summary `search` returns. */
+function summarize(description: string): string {
+  const cut = description.indexOf(". ");
+  return (cut === -1 ? description : description.slice(0, cut + 1)).trim();
+}
+
+/**
+ * Code-mode surface (see ./codemode.ts for why). These three are what `tools/list`
+ * advertises; all 30 named tools stay dispatchable by name, through `tools/call`
+ * directly (back-compat for a client holding a cached list) and through
+ * `call_tool` inside `execute`.
+ */
+const CODE_MODE_TOOLS: Record<string, ToolDef> = {
+  search: {
+    description:
+      "Find the tool for a job. Returns { name, summary } for every tool matching the query (omit the query to list all). Call get_schema for a tool's parameters, then execute to run it.",
+    schema: z.object({ query: z.string().optional() }),
+    handler: async (_ctx, a) => {
+      const q = String(a.query ?? "").toLowerCase();
+      const names = Object.keys(ALL_TOOLS).filter(
+        (n) => !q || n.includes(q) || ALL_TOOLS[n].description.toLowerCase().includes(q),
+      );
+      return { tools: names.map((n) => ({ name: n, summary: summarize(ALL_TOOLS[n].description) })) };
+    },
+  },
+  get_schema: {
+    description: "Full description + JSON Schema for the named tools. Fetch only the ones you are about to call.",
+    schema: z.object({ names: z.array(z.string()).min(1) }),
+    handler: async (_ctx, a) => ({
+      tools: (a.names as string[]).map((n) => {
+        const t = ALL_TOOLS[n];
+        if (!t) return { name: n, error: "unknown tool" };
+        return { name: n, description: t.description, inputSchema: z.toJSONSchema(t.schema) };
+      }),
+    }),
+  },
+  execute: {
+    description: `Run several tools in one call. ${EXECUTE_CONVENTION}`,
+    schema: z.object({ code: z.string().min(1) }),
+    handler: async (ctx, a) => {
+      const out = await runScript(ctx.env, a.code as string);
+      if (!out.ok) throw new Error(out.error ?? "script failed");
+      return out.value;
+    },
+  },
+};
+
+/** Every dispatchable tool: the domain tools plus the code-mode trio. */
+const ALL_TOOLS: Record<string, ToolDef> = { ...TOOLS, ...CODE_MODE_TOOLS };
+
+/**
+ * Dispatch one tool by name: validate, log the request to `mcp_logs` BEFORE
+ * running (so a prompt survives a crash mid-edit), run, log the outcome.
+ *
+ * @returns MCP `tools/call` result content, or an `isError` result the model can read.
+ */
+export async function callToolByName(
+  ctx: CoreContext,
+  name: string,
+  args: Record<string, unknown>,
+  host: string,
+): Promise<{ content: unknown[]; isError?: true }> {
+  const tool = ALL_TOOLS[name];
+  if (!tool) return { isError: true, content: [{ type: "text", text: `Unknown tool: ${name}` }] };
+
+  const log = await startMcpLog(ctx, { toolName: name, request: args }).catch((e) => {
+    console.error("[mcp] log start failed:", e instanceof Error ? e.message : String(e));
+    return null;
+  });
+
+  try {
+    const parsed = tool.schema.parse(args);
+    const out = await tool.handler(ctx, parsed as Record<string, unknown>, host);
+    // raw tools return MCP content blocks directly (image bytes); everything
+    // else returns JSON we wrap in a text block. Never log base64 bytes.
+    const content = tool.raw ? (out as unknown[]) : [{ type: "text", text: JSON.stringify(out, null, 2) }];
+    const logResponse = tool.raw
+      ? { blocks: (out as Array<{ type?: string; mimeType?: string }>).map((b) => ({ type: b.type, mimeType: b.mimeType })) }
+      : out;
+    if (log)
+      await finishMcpLog(ctx, { log, success: true, response: logResponse, revisionId: tool.raw ? undefined : sniffRevisionId(out) }).catch(
+        (e) => console.error("[mcp] log finish failed:", e instanceof Error ? e.message : String(e)),
+      );
+    return { content };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (log)
+      await finishMcpLog(ctx, { log, success: false, errorMessage: msg }).catch((e) =>
+        console.error("[mcp] log finish failed:", e instanceof Error ? e.message : String(e)),
+      );
+    // Tool errors are returned as an MCP tool error result (isError), not a
+    // protocol error, so the model can read + react to it.
+    return { isError: true, content: [{ type: "text", text: msg }] };
+  }
+}
+
+/**
+ * `POST /internal/mcp-tool` — the ONLY channel a code-mode sandbox has to the
+ * tools. Reached over this Worker's `SELF` service binding, authorised by the
+ * per-execution nonce (never the real API key). Body: `{ name, args }`.
+ *
+ * @returns `{ result }` with the tool's JSON, or `{ error }` (HTTP 4xx/200) —
+ *   the sandbox prelude turns a non-ok response into a thrown `call_tool` error.
+ */
+export async function handleInternalToolCall(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") return Response.json({ error: "POST only" }, { status: 405 });
+  if (!(await isValidSandboxNonce(env, request.headers.get("x-sandbox-nonce")))) {
+    return Response.json({ error: "invalid or expired sandbox nonce" }, { status: 401 });
+  }
+  let body: { name?: string; args?: Record<string, unknown> };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return Response.json({ error: "invalid JSON body" }, { status: 400 });
+  }
+  if (!body.name) return Response.json({ error: "name is required" }, { status: 400 });
+
+  const ctx = createCoreContext(env);
+  const host = MCP_PUBLIC_HOST;
+  const out = await callToolByName(ctx, body.name, body.args ?? {}, host);
+  if (out.isError) {
+    const text = (out.content[0] as { text?: string } | undefined)?.text ?? "tool failed";
+    return Response.json({ error: text }, { status: 400 });
+  }
+  // Give the script the tool's VALUE, not MCP content blocks — a script wants data.
+  const first = out.content[0] as { type?: string; text?: string } | undefined;
+  if (first?.type === "text" && typeof first.text === "string") {
+    try {
+      return Response.json({ result: JSON.parse(first.text) });
+    } catch {
+      return Response.json({ result: first.text });
+    }
+  }
+  // Image/raw tools: hand back the blocks minus any base64 payload (a script
+  // should pass URLs around, not megabytes of pixels).
+  return Response.json({
+    result: out.content.map((b) => {
+      const blk = b as Record<string, unknown>;
+      return blk.type === "image" ? { type: "image", mimeType: blk.mimeType, omitted: "base64 bytes" } : blk;
+    }),
+  });
+}
+
 interface RpcReq {
   jsonrpc: "2.0";
   id?: number | string | null;
@@ -463,55 +611,24 @@ export async function handleMcp(request: Request, env: Env): Promise<Response> {
     case "ping":
       return result(body.id, {});
 
-    case "tools/list":
+    case "tools/list": {
+      // Code mode by default (3 tools, ~10x cheaper per session than advertising
+      // all 30). `?mode=named` on the /mcp URL restores the full named surface for
+      // a client that wants it; every name stays callable either way.
+      const advertised = new URL(request.url).searchParams.get("mode") === "named" ? ALL_TOOLS : CODE_MODE_TOOLS;
       return result(body.id, {
-        tools: Object.entries(TOOLS).map(([name, def]) => ({
+        tools: Object.entries(advertised).map(([name, def]) => ({
           name,
           description: def.description,
           inputSchema: z.toJSONSchema(def.schema),
         })),
       });
+    }
 
     case "tools/call": {
       const name = body.params?.name as string;
       const args = (body.params?.arguments ?? {}) as Record<string, unknown>;
-      const tool = TOOLS[name];
-      if (!tool) return rpcError(body.id, -32601, `Unknown tool: ${name}`);
-      const ctx = createCoreContext(env);
-
-      // Persist the request (tool + full payload) BEFORE running the handler, so
-      // the prompt survives even a crash/timeout mid-edit. A logging failure must
-      // never take down the tool, so we swallow it here (D1 being down would fail
-      // the handler anyway).
-      const log = await startMcpLog(ctx, { toolName: name, request: args }).catch((e) => {
-        console.error("[mcp] log start failed:", e instanceof Error ? e.message : String(e));
-        return null;
-      });
-
-      try {
-        const parsed = tool.schema.parse(args);
-        const out = await tool.handler(ctx, parsed as Record<string, unknown>, host);
-        // raw tools return MCP content blocks directly (image bytes); everything
-        // else returns JSON we wrap in a text block. Never log base64 bytes.
-        const content = tool.raw ? (out as unknown[]) : [{ type: "text", text: JSON.stringify(out, null, 2) }];
-        const logResponse = tool.raw
-          ? { blocks: (out as Array<{ type?: string; mimeType?: string }>).map((b) => ({ type: b.type, mimeType: b.mimeType })) }
-          : out;
-        if (log)
-          await finishMcpLog(ctx, { log, success: true, response: logResponse, revisionId: tool.raw ? undefined : sniffRevisionId(out) }).catch(
-            (e) => console.error("[mcp] log finish failed:", e instanceof Error ? e.message : String(e)),
-          );
-        return result(body.id, { content });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (log)
-          await finishMcpLog(ctx, { log, success: false, errorMessage: msg }).catch((e) =>
-            console.error("[mcp] log finish failed:", e instanceof Error ? e.message : String(e)),
-          );
-        // Tool errors are returned as an MCP tool error result (isError), not a
-        // protocol error, so the model can read + react to it.
-        return result(body.id, { isError: true, content: [{ type: "text", text: msg }] });
-      }
+      return result(body.id, await callToolByName(createCoreContext(env), name, args, host));
     }
 
     default:

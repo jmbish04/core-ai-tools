@@ -87,6 +87,9 @@ async function handleAuthorize(request: Request, env: Env): Promise<Response> {
 }
 
 /** Wrap the base Worker handler (Astro SSR + Hono API + email) with OAuth. */
+/** One year in seconds — the grant lifetime for this single-owner MCP server. */
+const ONE_YEAR_S = 60 * 60 * 24 * 365;
+
 export function buildOAuthHandler(base: ExportedHandler<Env>): OAuthProvider<Env> {
   const defaultHandler = {
     // Params typed loosely to bridge lib.dom (Request) vs @cloudflare/workers-types.
@@ -108,7 +111,13 @@ export function buildOAuthHandler(base: ExportedHandler<Env>): OAuthProvider<Env
     scopesSupported: SCOPES,
     // Access-token lifetime: 1 year (default is 1 hour). Single-owner MCP server,
     // so a long-lived token avoids re-authorizing the Claude.ai connector daily.
-    accessTokenTTL: 60 * 60 * 24 * 365,
+    accessTokenTTL: ONE_YEAR_S,
+    // A 1-year access token is capped by whichever of these expires FIRST, and both
+    // default short: refresh tokens 30 days, and a DCR-registered client 90 days.
+    // Claude registers through DCR, so leaving clientRegistrationTTL at its default
+    // silently kills the connector at 90 days with a working access-token config.
+    refreshTokenTTL: ONE_YEAR_S,
+    clientRegistrationTTL: ONE_YEAR_S,
     // RFC 9728: the protected-resource `resource` MUST equal the MCP server URL
     // Claude connects to (`…/mcp`) — not the origin, or Claude rejects the
     // resource match. Pinned to the deployed host.

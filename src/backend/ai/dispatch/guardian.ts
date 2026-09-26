@@ -54,8 +54,10 @@ async function postUsage(env: Env, usage: GuardianUsage): Promise<void> {
   };
   // Prefer the service binding (internal routing, no error 1042). Fall back to a
   // public fetch only if the binding is absent (e.g. a stripped-down env).
-  const res = env.GUARDIAN
-    ? await env.GUARDIAN.fetch(GUARDIAN_URL, init)
+  // GUARDIAN_HTTP is the plain default-export fetcher; GUARDIAN itself is bound to
+  // the GuardianRpc entrypoint (see wrangler.jsonc) and has no .fetch for REST.
+  const res = env.GUARDIAN_HTTP
+    ? await env.GUARDIAN_HTTP.fetch(GUARDIAN_URL, init)
     : await fetch(GUARDIAN_URL, init);
   if (!res.ok) {
     const body = await res.text().catch(() => "");

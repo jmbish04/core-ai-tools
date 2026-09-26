@@ -574,3 +574,80 @@ parse → validate → call core → serialize. No business logic outside core.
   `ProviderError` from an SDK catch.
 - **`CapabilityRequirement` has `text_to_image` / `image_to_image`.** Edits require `image_to_image`,
   so fallback can't pick an understanding-only model (e.g. `gemini-3.6-flash`).
+
+## MCP is CODE MODE now (3 advertised tools, not 30) — measured 91% cheaper
+
+- **`tools/list` advertises `search` / `get_schema` / `execute` only.** Measured
+  2026-09-26 against production: named surface 16,185 bytes ≈ **4,046 tokens** per
+  session; code mode 1,460 bytes ≈ **365 tokens**. Every tool definition is re-sent on
+  every request of every session, so this is a per-turn saving. Rules: `~/AGENTS-mcp.md`.
+- **All 30 named tools stay dispatchable.** `tools/call` accepts any name (a client
+  with a cached list keeps working), and `GET/POST /mcp?mode=named` restores the full
+  advertised surface. Keep descriptions LEAN — a fat `execute` description re-spends
+  what code mode saved.
+- **`execute` runs the snippet in a real isolate** (`WORKER_LOADERS`), NOT in this
+  worker. The isolate gets no bindings and `globalOutbound: null`, so its ONLY channel
+  is `env.PARENT` → the **`SELF` service binding** → `POST /internal/mcp-tool`, gated by
+  a per-execution nonce stored in `OAUTH_KV` (TTL 600s, revoked when the call returns).
+  **The real `WORKER_API_KEY` is never passed into a sandbox.** A Worker fetching its own
+  public hostname is error 1042 — that is why this is a service binding, not a fetch.
+  Convention the model must follow lives in `EXECUTE_CONVENTION` (`mcp/codemode.ts`):
+  an async function body, `await call_tool(name, args)`, `return` a value.
+- **Verified live**: one `execute` chaining `list_library` → `create_session` →
+  `submit_edit` returned a finished revision. Note `list_library` returns an ARRAY,
+  not `{images:[…]}`.
+
+## OAuth: a 1-year grant needs THREE TTLs, not one
+
+`accessTokenTTL` alone is a trap — the grant dies at whichever TTL expires first, and
+two default short: `refreshTokenTTL` 30 days and `clientRegistrationTTL` **90 days**.
+Claude connects via DCR, so the connector silently broke at 90 days with a "1-year"
+config. All three are now `ONE_YEAR_S` in `mcp/oauth.ts`. Never set only one.
+
+## AI routing through core-guardian (Gemini routed; OpenAI images CANNOT be)
+
+- **`GUARDIAN` is bound to the `GuardianRpc` entrypoint** — a service binding IS the
+  trust boundary there, so the RPC door needs **no token** (the HTTP
+  `/api/ai-router/run` route wants `CLOUDFLARE_AI_GATEWAY_TOKEN`; the RPC door does
+  not). `GUARDIAN_HTTP` is a second, plain binding kept for guardian's REST surface
+  (`POST /api/guardian/usage/register`) — naming an entrypoint changes what `.fetch()`
+  on a binding resolves to, so one binding cannot serve both.
+- **`google-image.ts` routes through `env.GUARDIAN.run({ project, importance, provider,
+  model, mode: "gateway", input })`.** `importance` is REQUIRED by guardian's `runBody`
+  and has no default — omitting it fails validation and the call silently takes the
+  fallback. Guardian's gateway mode maps google → `v1beta/interactions`, which is the
+  API this adapter uses, so params pass through unchanged apart from `model` (guardian
+  merges that itself).
+- **422 "not priceable" ≠ 429 breaker.** Guardian fails closed on any google call whose
+  model it cannot price, and it cannot price our pinned ids (its pricing rows are keyed
+  by display name). A 422-unpriceable therefore falls back to the direct SDK call, loudly,
+  still emitting `usage/register`; anything else is surfaced. **Never bypass a spend
+  control, and never invent a price to silence the guard.** Open decision:
+  `docs/decisions/2026-09-26-guardian-pricing-blocks-gemini-routing.md`.
+- **OpenAI image calls cannot route through guardian at all**: guardian hardcodes
+  `chat/completions` per provider (no caller-supplied path) and `JSON.stringify`s every
+  body, while `images.edit` is multipart. They still traverse **AI Gateway** via the
+  SDK `baseURL` and emit `usage/register`. Routing them needs a guardian-side images
+  surface — do not fake it here.
+- **The `core-ai-tools` AI Gateway now exists.** It was referenced by the `AI_GATEWAY_ID`
+  var but never created, so every OpenAI call failed `2001 Please configure AI Gateway`.
+  Created 2026-09-26 with `authentication: true`; the `AI_GATEWAY_TOKEN` binding
+  (→ `CLOUDFLARE_AI_GATEWAY_TOKEN`) already existed.
+
+## Model catalog: `POST /api/models/sync` (code catalog → D1)
+
+`seedRegistry` had **no caller anywhere in `src/`**, so adding a model to
+`registry/catalog.ts` left D1 unaware of it — and `task_model_defaults.model_id` has an
+FK onto `model_catalog`, so setting a default for a new model failed as an opaque 500.
+There is now an admin-gated `POST /api/models/sync`, and the task-default PUT checks
+both catalogs and says which fix is needed. Adding a model = catalog entry → deploy →
+`POST /api/models/sync` → `PUT /api/models/tasks/{taskKey}`.
+
+## OpenAI Images 2.5 is the `image_edit` default (native mask channel)
+
+`gpt-image-2.5-flare` (default) and `gpt-image-2.5-sunburst` (premium, tighter control
+across edits) registered; ids verified live against `GET /v1/models` 2026-09-26.
+Gemini keeps `image_generate`. Rationale: Gemini image models have NO mask channel
+(`mask_emulated_only`), OpenAI does — so masked/precision edits are native rather than
+emulated. The authoritative switch is D1, not `default_for`:
+`PUT /api/models/tasks/image_edit {"modelId":"…"}`.

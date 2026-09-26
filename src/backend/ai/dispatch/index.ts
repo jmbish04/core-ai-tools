@@ -48,7 +48,7 @@ export interface DispatchInput {
 }
 
 export interface DispatchOutput extends ProviderResult {
-  servedVia: "gateway" | "direct";
+  servedVia: "gateway" | "direct" | "guardian";
   servedModel: string;
 }
 
@@ -67,6 +67,13 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutput> {
   }
 
   const result = await fn.call(adapter, input.env, input.request);
+
+  // Guardian-routed calls are metered by guardian's own router (it prices the
+  // call and increments project spend before returning), so emitting here too
+  // would double-count. Every other path still emits — the choke point holds.
+  if (result.meteredByGuardian) {
+    return { ...result, servedVia: result.servedVia ?? "guardian", servedModel: input.model.id };
+  }
 
   // Emit usage AFTER a successful call — non-blocking, buffered on failure,
   // thinking tokens separate, cost auto-priced by guardian.
@@ -88,5 +95,5 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutput> {
     input.waitUntil,
   );
 
-  return { ...result, servedVia: DEFAULT_SERVED_VIA, servedModel: input.model.id };
+  return { ...result, servedVia: result.servedVia ?? DEFAULT_SERVED_VIA, servedModel: input.model.id };
 }

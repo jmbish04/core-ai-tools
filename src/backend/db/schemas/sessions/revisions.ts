@@ -158,7 +158,7 @@ export const revisions = sqliteTable(
     /** Grounding: `url_citation` annotations (JSON). */
     groundingCitations: text("grounding_citations", { mode: "json" }).$type<unknown>(),
     /** Which path served the request — `gateway` (AI Gateway) or `direct`. Makes coverage auditable. */
-    servedVia: text("served_via", { enum: ["gateway", "direct"] }),
+    servedVia: text("served_via", { enum: ["gateway", "direct", "guardian"] }),
     inputImageId: text("input_image_id")
       .notNull()
       .references(() => libraryImages.id, { onDelete: "restrict" }),
