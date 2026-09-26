@@ -16,6 +16,8 @@ export * from "./factory";
 export * from "./events";
 export * from "./images";
 export * from "./library";
+export * from "./folders";
+export * from "./assets";
 export * from "./prompts";
 export * from "./understanding";
 export * from "./sessions";

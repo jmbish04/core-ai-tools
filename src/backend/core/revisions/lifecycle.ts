@@ -16,6 +16,7 @@ import type { Revision } from "@/backend/db/schema";
 import type { CoreContext } from "../context";
 import { ValidationError } from "../errors";
 import { EventType } from "../events";
+import { propagateLineage } from "../assets/lineage";
 import { confirmMask } from "../masks";
 import { clearVideoExpiryForOutput } from "../library/video";
 import { requireRevision } from "./query";
@@ -232,6 +233,28 @@ export async function markSucceeded(ctx: CoreContext, input: SucceededInput): Pr
     })
     .where(eq(revisions.id, input.revisionId))
     .returning();
+  // Asset lineage: the output inherits whatever assets its INPUT descends from.
+  // This one call is what makes lineage survive forks (a fork's input IS the
+  // forked-from node's output) and retries (same parent → same input image).
+  // Bookkeeping, not the result: a lineage write that fails must not turn a
+  // finished generation into a failed one. The image is already produced and
+  // stored by this point; losing its asset trace is a gap on the asset page,
+  // while throwing here would mark a succeeded revision as failed.
+  if (row.outputImageId) {
+    try {
+      await propagateLineage(ctx, {
+        fromImageId: row.inputImageId,
+        toImageId: row.outputImageId,
+        sessionUuid: row.sessionUuid,
+        revisionId: row.id,
+      });
+    } catch (err) {
+      console.error(
+        `[lineage] propagation failed for revision ${row.id}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
   await emitStatusChange(ctx, row, current.status);
   return row;
 }
