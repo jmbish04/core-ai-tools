@@ -62,14 +62,13 @@ const { agents } = await apiGet<AgentsResponse>("docs/agents");`;
       <Badge variant="outline" class="mb-4 font-mono text-[11px]">Docs</Badge>
       <h1 class="text-balance text-4xl font-bold tracking-tight sm:text-5xl">Documentation</h1>
       <p class="mt-5 max-w-3xl text-lg leading-relaxed text-muted-foreground">
-        Everything you need to build on this template: a single Cloudflare Worker that serves
-        Astro SSR pages, a Zod-validated Hono API over D1/Drizzle, and stateful agents on the
-        Cloudflare Agents SDK. Start with the <a href="/playbook" class="text-primary hover:underline">Developer Playbook</a>,
-        explore the live API below, or jump straight into a showcase.
+        How this workspace is built: a single Cloudflare Worker serving Astro SSR pages, a
+        Zod-validated Hono API over D1/Drizzle, an MCP server in code mode, and image models
+        routed through core-guardian. Start in your folders, or explore the live API below.
       </p>
       <div class="mt-6 flex flex-wrap gap-2">
-        <a href="/playbook" class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90">Developer Playbook</a>
-        <a href="/showcase/features" class="rounded-lg bg-muted px-4 py-2 text-sm font-semibold transition-colors hover:bg-muted/70">All showcases</a>
+        <a href="/folders" class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90">Open folders</a>
+        <a href="/mcp-setup" class="rounded-lg bg-muted px-4 py-2 text-sm font-semibold transition-colors hover:bg-muted/70">Connect over MCP</a>
       </div>
     </section>
 

@@ -47,15 +47,8 @@ type LoadState =
   | { status: "error" }
   | { status: "ready"; agents: AgentMetadata[] };
 
-/** Maps an agent class to its live showcase route, where one exists. */
+/** Maps an agent class to the page that exercises it, where one exists. */
 const SHOWCASE_ROUTES: Record<string, string> = {
-  CodeModeAgent: "/showcase/code-mode",
-  BrowserHitlAgent: "/showcase/browser-hitl",
-  WorkflowsAgent: "/showcase/workflows",
-  ArtifactAgent: "/showcase/artifacts",
-  McpAgent: "/showcase/mcp",
-  ThinkingAgent: "/showcase/thinking",
-  SkillsAgent: "/showcase/skills",
   ChatBroker: "/chat",
 };
 
@@ -189,7 +182,7 @@ export function DocsAgentsSection() {
                   href={route}
                   className="mt-5 inline-flex w-fit items-center gap-1 text-sm font-medium text-primary hover:underline"
                 >
-                  View live showcase
+                  Open
                   <span aria-hidden>→</span>
                 </a>
               ) : null}

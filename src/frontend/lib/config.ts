@@ -40,6 +40,8 @@ export const siteConfig: SiteConfig = {
   },
   // Primary destinations for the image-editing product.
   navItems: [
+    { href: "/folders", label: "Folders" },
+    { href: "/assets", label: "Assets" },
     { href: "/library", label: "Library" },
     { href: "/sessions", label: "Sessions" },
     { href: "/models", label: "Models" },
@@ -51,8 +53,6 @@ export const siteConfig: SiteConfig = {
       items: [
         { href: "/", label: "Home" },
         { href: "/chat", label: "Assistant Chat" },
-        { href: "/dashboard", label: "Analytics Dashboard" },
-        { href: "/inbox", label: "Inbox" },
       ],
     },
     {
@@ -68,9 +68,7 @@ export const siteConfig: SiteConfig = {
     {
       label: "System",
       items: [
-        { href: "/notifications", label: "Notifications" },
         { href: "/settings", label: "Settings" },
-        { href: "/showcase/utilities", label: "Utilities" },
       ],
     },
   ],
