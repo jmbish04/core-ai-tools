@@ -1,27 +1,26 @@
 {
   "extends": "astro/tsconfigs/strict",
   "compilerOptions": {
-    "baseUrl": ".",
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
     "jsxImportSource": "react",
     "types": ["@cloudflare/workers-types", "./worker-configuration.d.ts", "node"],
     "paths": {
-      "@/components/*": ["src/frontend/components/*"],
-      "@/hooks/*": ["src/frontend/hooks/*"],
-      "@/lib/*": ["src/frontend/lib/*"],
-      "@/*": ["src/frontend/*", "src/backend/*"],
-      "@/shared/*": ["src/shared/*"],
-      "@/backend/*": ["src/backend/*"],
-      "@/backend/db/*": ["src/backend/db/*"],
-      "@/backend/ai/*": ["src/backend/ai/*"],
-      "@/backend/logging/*": ["src/backend/logging/*"],
-      "@/backend/modules/*": ["src/backend/modules/*"],
-      "@/services/*": ["src/backend/services/*"],
-      "@db/schemas": ["src/backend/db/schema"],
-      "@/db/schema": ["src/backend/db/schema"],
-      "@/backend/db/schema": ["src/backend/db/schema"]
+      "@/components/*": ["./src/frontend/components/*"],
+      "@/hooks/*": ["./src/frontend/hooks/*"],
+      "@/lib/*": ["./src/frontend/lib/*"],
+      "@/*": ["./src/frontend/*", "./src/backend/*"],
+      "@/shared/*": ["./src/shared/*"],
+      "@/backend/*": ["./src/backend/*"],
+      "@/backend/db/*": ["./src/backend/db/*"],
+      "@/backend/ai/*": ["./src/backend/ai/*"],
+      "@/backend/logging/*": ["./src/backend/logging/*"],
+      "@/backend/modules/*": ["./src/backend/modules/*"],
+      "@/services/*": ["./src/backend/services/*"],
+      "@db/schemas": ["./src/backend/db/schema"],
+      "@/db/schema": ["./src/backend/db/schema"],
+      "@/backend/db/schema": ["./src/backend/db/schema"]
     }
   },
   "include": [".astro/types.d.ts", "src/**/*", "worker-configuration.d.ts"]

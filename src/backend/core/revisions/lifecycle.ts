@@ -204,7 +204,7 @@ export interface SucceededInput {
   /** True if provider conversation state was lost and inline fallback was used. */
   providerConversationLost?: boolean;
   /** `gateway` | `direct` — makes AI Gateway coverage auditable. */
-  servedVia?: "gateway" | "direct" | null;
+  servedVia?: "gateway" | "direct" | "guardian" | null;
   /** Grounding search_suggestions HTML (rendered per ToS). */
   groundingSearchSuggestions?: string | null;
   groundingCitations?: unknown;

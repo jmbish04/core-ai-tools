@@ -11,8 +11,8 @@
  * the `ASSETS` binding for static files. `astro build` emits the SSR output;
  * `wrangler deploy` bundles THIS file as the entry.
  *
- * Routing: `/agents/*` → Agents SDK router; `/ws|/realtime` → SessionDO WS proxy
- * (cookie-gated); `/api/*` + doc URLs → Hono; page navigations → session-cookie
+ * Routing: `/agents/*` → Agents SDK router; `/ws|/realtime` → SessionDO /
+ * FolderDO WS proxies (cookie-gated); `/api/*` + doc URLs → Hono; page navigations → session-cookie
  * gate; everything else → Astro SSR. `/mcp` + OAuth endpoints are owned by the
  * OAuthProvider that wraps this handler's `fetch`. `email(message, env, ctx)` is
  * Cloudflare Email Routing's inbound entry (stores mail in D1 for `/inbox`).
@@ -56,11 +56,12 @@ async function runMaintenance(env: Env): Promise<void> {
 import { ChatBroker } from "./backend/ai/agents/ChatBroker";
 import { NotificationsAgent } from "./backend/ai/agents/NotificationsAgent";
 import { SessionDO } from "./backend/realtime/session-do";
+import { FolderDO } from "./backend/realtime/folder-do";
 
 // Re-export Durable Object classes so Cloudflare resolves every DO binding
 // declared in wrangler.jsonc. wrangler bundles this module as the Worker entry,
 // so these named exports ARE the deployed Worker's DO exports.
-export { ChatBroker, NotificationsAgent, SessionDO };
+export { ChatBroker, NotificationsAgent, SessionDO, FolderDO };
 
 /**
  * True for an HTML page navigation that should be gated behind the session
@@ -145,6 +146,21 @@ const base = {
           return new Response("Unauthorized", { status: 401 });
         }
         const stub = env.SESSION_DO.getByName(uuid);
+        return stub.fetch(request as any);
+      }
+    }
+
+    // 1c. FolderDO realtime WebSocket: /ws/folder/:folderId. Same shape as the
+    // session channel above — a genuine raw-request proxy of the caller's WS
+    // upgrade (the sanctioned stub.fetch), cookie-gated because a browser
+    // WebSocket cannot carry a bearer.
+    if (url.pathname.startsWith("/ws/folder/")) {
+      const folderId = url.pathname.slice("/ws/folder/".length);
+      if (folderId) {
+        if (!(await verifySessionCookie(env, request.headers.get("Cookie")))) {
+          return new Response("Unauthorized", { status: 401 });
+        }
+        const stub = env.FOLDER_DO.getByName(folderId);
         return stub.fetch(request as any);
       }
     }

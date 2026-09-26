@@ -42,8 +42,8 @@
   "durable_objects": {
     // Trimmed to what core-ai-tools exports (see src/_worker.ts): ChatBroker
     // (assistant-ui chat), NotificationsAgent (realtime feed), SessionDO
-    // (per-session fanout + seq allocator). The template's showcase agents are
-    // retired in migration v2 below.
+    // (per-session fanout + seq allocator), FolderDO (per-folder fanout). The
+    // template's showcase agents are retired in migration v2 below.
     "bindings": [
       {
         "name": "CHAT_BROKER",
@@ -57,6 +57,11 @@
         // Realtime fanout + seq allocator, one instance per session_uuid.
         "name": "SESSION_DO",
         "class_name": "SessionDO",
+      },
+      {
+        // Realtime fanout + seq allocator, one instance per library folder id.
+        "name": "FOLDER_DO",
+        "class_name": "FolderDO",
       },
     ],
   },
@@ -98,8 +103,9 @@
   },
   // DO migration history. This MUST match what the deployed Worker has applied —
   // v1 created the full class set (incl. SessionDO), v2 retired the 10 showcase
-  // agents, leaving ChatBroker + NotificationsAgent + SessionDO. Do NOT rewrite
-  // v1/v2 (immutable, already applied); add v3, v4, … additively.
+  // agents, v3 added FolderDO — leaving ChatBroker + NotificationsAgent +
+  // SessionDO + FolderDO. Do NOT rewrite v1/v2/v3 (immutable, already applied or
+  // about to be); add v4, v5, … additively.
   "migrations": [
     {
       "tag": "v1",
@@ -133,6 +139,12 @@
         "ThinkingAgent",
         "SkillsAgent",
       ],
+    },
+    {
+      // ADDITIVE: FolderDO is a NEW class (per-folder realtime channel, W2.4).
+      // v1/v2 are already applied to the deployed Worker and are immutable.
+      "tag": "v3",
+      "new_sqlite_classes": ["FolderDO"],
     },
   ],
   // ---------------------------------------------------------------------------
