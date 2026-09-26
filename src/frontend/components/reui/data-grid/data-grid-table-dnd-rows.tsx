@@ -67,7 +67,7 @@ import { flexRender } from "@tanstack/react-table"
 import type { Cell, HeaderGroup, Row, Table } from "@tanstack/react-table"
 import { createPortal } from "react-dom"
 
-import { cn } from "cn"
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { GripHorizontalIcon } from "lucide-react"
 

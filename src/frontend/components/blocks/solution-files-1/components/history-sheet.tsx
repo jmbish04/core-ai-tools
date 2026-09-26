@@ -10,7 +10,7 @@ import {
   TimelineSeparator,
   TimelineTitle,
 } from "@/components/reui/timeline"
-import { cn } from "cn"
+import { cn } from "@/lib/utils"
 
 import {
   Avatar,

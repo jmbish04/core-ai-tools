@@ -18,7 +18,7 @@ import {
   StepperTitle,
   StepperTrigger,
 } from "@/components/reui/stepper"
-import { cn } from "cn"
+import { cn } from "@/lib/utils"
 import { format } from "date-fns"
 
 import { Button } from "@/components/ui/button"

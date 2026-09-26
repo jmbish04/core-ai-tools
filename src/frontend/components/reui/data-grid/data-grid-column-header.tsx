@@ -10,7 +10,7 @@ import type { DataGridFeatures } from "@/components/reui/data-grid/data-grid"
 import { Subscribe } from "@tanstack/react-table"
 import type { Column } from "@tanstack/react-table"
 
-import { cn } from "cn"
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,

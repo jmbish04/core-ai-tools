@@ -7,7 +7,7 @@ import {
   DataGridTableRowSelectAll,
 } from "@/components/reui/data-grid/data-grid-table"
 import { type ColumnDef } from "@tanstack/react-table"
-import { cn } from "cn"
+import { cn } from "@/lib/utils"
 
 import {
   Avatar,

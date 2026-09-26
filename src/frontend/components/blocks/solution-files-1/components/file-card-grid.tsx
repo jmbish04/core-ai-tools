@@ -1,6 +1,6 @@
 import { Badge } from "@/components/reui/badge"
 import { IconTile } from "@/components/reui/icon-tile"
-import { cn } from "cn"
+import { cn } from "@/lib/utils"
 
 import {
   Avatar,

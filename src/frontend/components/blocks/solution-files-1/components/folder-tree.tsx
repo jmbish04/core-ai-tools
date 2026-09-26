@@ -10,7 +10,7 @@ import {
   syncDataLoaderFeature,
 } from "@headless-tree/core"
 import { useTree } from "@headless-tree/react"
-import { cn } from "cn"
+import { cn } from "@/lib/utils"
 
 import { Button } from "@/components/ui/button"
 import {
