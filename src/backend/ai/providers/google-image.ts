@@ -32,7 +32,7 @@
 import { GoogleGenAI } from "@google/genai";
 
 import { getGeminiApiKey } from "@/backend/utils/secrets";
-import { NotImplementedError, ProviderError } from "@/backend/core/errors";
+import { classifyProviderError, NotImplementedError, ProviderError } from "@/backend/core/errors";
 import type { ProviderAdapter, ProviderRequest, ProviderResult } from "../dispatch/types";
 
 type InputPart =
@@ -165,9 +165,13 @@ export const googleImageAdapter: ProviderAdapter = {
     } catch (err) {
       if (req.previousInteractionId && isLostInteraction(err)) {
         conversationLost = true;
-        interaction = await ai.interactions.create(buildParams(req, { withPrevious: false }) as never);
+        try {
+          interaction = await ai.interactions.create(buildParams(req, { withPrevious: false }) as never);
+        } catch (retryErr) {
+          throw classifyProviderError("Gemini Interactions", retryErr);
+        }
       } else {
-        throw new ProviderError(`Gemini Interactions failed: ${(err as Error)?.message ?? err}`, err);
+        throw classifyProviderError("Gemini Interactions", err);
       }
     }
 
@@ -199,7 +203,7 @@ export const googleImageAdapter: ProviderAdapter = {
     try {
       interaction = await ai.interactions.create(params as never);
     } catch (err) {
-      throw new ProviderError(`Gemini understand failed: ${(err as Error)?.message ?? err}`, err);
+      throw classifyProviderError("Gemini understand", err);
     }
 
     const result = parseInteraction(interaction);

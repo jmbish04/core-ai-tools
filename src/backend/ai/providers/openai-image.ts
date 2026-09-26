@@ -24,7 +24,7 @@ import {
   getCloudflareAccountId,
   getOpenAiApiKey,
 } from "@/backend/utils/secrets";
-import { NotImplementedError, ProviderError } from "@/backend/core/errors";
+import { classifyProviderError, NotImplementedError, ProviderError } from "@/backend/core/errors";
 import type { ProviderAdapter, ProviderRequest, ProviderResult } from "../dispatch/types";
 
 /** OpenAI gpt-image sizes. Map our aspect ratio; default lets the model choose. */
@@ -128,7 +128,7 @@ export const openaiImageAdapter: ProviderAdapter = {
       return result;
     } catch (err) {
       if (err instanceof ProviderError || err instanceof NotImplementedError) throw err;
-      throw new ProviderError(`OpenAI Images failed: ${(err as Error)?.message ?? err}`, err);
+      throw classifyProviderError("OpenAI Images", err);
     }
   },
 };

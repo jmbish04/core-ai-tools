@@ -30,6 +30,7 @@ const SESSION_NOTE =
   "Session-scoped; results appear in the web UI in realtime (you are participating in a shared session).";
 
 export const MCP_TOOLS: McpToolSpec[] = [
+  { name: "generate_image", summary: "Text-to-image into the library: count/styles/variations fan out in parallel; icon/pattern/diagram/story presets.", core: "generateImages", producesImage: true },
   { name: "create_session", summary: `Start a session from a library image or inline upload. ${SESSION_NOTE}`, core: "createSession" },
   { name: "resume_session", summary: `Resume a session by uuid; returns full state + tree. ${SESSION_NOTE}`, core: "resumeSession" },
   { name: "list_sessions", summary: "List sessions (filter/sort/paginate).", core: "listSessions" },

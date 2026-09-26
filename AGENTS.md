@@ -559,3 +559,18 @@ parse → validate → call core → serialize. No business logic outside core.
   idempotency replay-vs-new-attempt, all approval policies + escalation, cancel/pin, expiry
   sweep, folder no-cycle, image soft-delete, concurrent seq allocation, and archive
   mask-reaping.
+
+## Text-to-image + provider error classification (nanobanana-derived)
+
+- **`generate_image` MCP tool → `core/generate/generateImages`.** Prompt-only generation into the
+  library (`kind='generated'`, prompt stored as `description`); returned ids seed `create_session`.
+  `expandPrompts` (pure, `core/generate/prompts.ts`) handles count (1–8, always exact), styles ×
+  variations cross product, and icon/pattern/diagram/story presets. Non-story renders fan out in
+  parallel; story frames run sequentially chaining `previousInteractionId` for consistency. Partial
+  failures are returned per prompt; it throws only if nothing rendered.
+- **Every adapter error goes through `classifyProviderError` (`core/errors.ts`).** It sets
+  `ProviderError.retryable` for 429/5xx/network only — that flag is what lets `executeRevision` fall
+  back to another model. Before this, nothing set it and fallback never ran. Never throw a bare
+  `ProviderError` from an SDK catch.
+- **`CapabilityRequirement` has `text_to_image` / `image_to_image`.** Edits require `image_to_image`,
+  so fallback can't pick an understanding-only model (e.g. `gemini-3.6-flash`).

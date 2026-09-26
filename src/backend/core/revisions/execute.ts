@@ -47,7 +47,7 @@ function isRetryable(err: unknown): boolean {
 /** Derive the capability requirement a model must satisfy for this revision. */
 function requirementFor(rev: Revision, maskMode: string): CapabilityRequirement {
   const payload = (rev.editPayload ?? {}) as Record<string, unknown>;
-  const req: CapabilityRequirement = {};
+  const req: CapabilityRequirement = { image_to_image: true };
   if (maskMode !== "none") req.mask_inpainting = true;
   if (typeof payload.resolution === "string")
     req.resolution = payload.resolution as CapabilityRequirement["resolution"];

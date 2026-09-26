@@ -26,6 +26,10 @@ import {
   registerImageFromSource,
   forkRevision,
   finishMcpLog,
+  generateImages,
+  GENERATE_PRESETS,
+  MAX_GENERATE_COUNT,
+  VARIATION_SUFFIXES,
   gradeRevision,
   listLibrary,
   listMasks,
@@ -55,6 +59,7 @@ import {
   serializeMasks,
   serializeSessions,
   serializeSessionTree,
+  resolveImageUrls,
 } from "./serialize";
 
 // Auth is enforced by the OAuth 2.1 layer (workers-oauth-provider) that wraps
@@ -99,6 +104,50 @@ function imageResultContent(r: { image: unknown; imageUrl: string | null; thumbU
 }
 
 const TOOLS: Record<string, ToolDef> = {
+  generate_image: {
+    description:
+      `Generate NEW images from a text prompt (no source image) into the library; returns image ids + URLs. ` +
+      `Use a returned image id as create_session.originLibraryImageId to start editing it. ` +
+      `Variations: count (1–${MAX_GENERATE_COUNT}), styles[] (one image per style, e.g. watercolor, photorealistic), ` +
+      `variations[] (each axis adds 2 prompts; crossed with styles, clamped to count). Variations render in parallel. ` +
+      `preset: icon (type app-icon|favicon|ui-element, style, background), pattern (type seamless|texture|wallpaper, ` +
+      `style, density sparse|medium|dense, colors), diagram (type flowchart|architecture|network|database|wireframe|` +
+      `mindmap|sequence, style, layout, density=complexity, colors), story (count frames, default 4; type ` +
+      `story|process|tutorial|timeline — frames are chained for visual consistency, rendered sequentially). ` +
+      `Partial failures are listed per prompt; the call errors only if nothing rendered.`,
+    schema: z.object({
+      prompt: z.string().min(1),
+      count: z.number().int().min(1).max(MAX_GENERATE_COUNT).optional(),
+      styles: z.array(z.string().min(1)).max(MAX_GENERATE_COUNT).optional(),
+      variations: z.array(z.enum(Object.keys(VARIATION_SUFFIXES) as [string, ...string[]])).optional(),
+      preset: z.enum(GENERATE_PRESETS).optional(),
+      type: z.string().optional(),
+      style: z.string().optional(),
+      background: z.string().optional(),
+      density: z.string().optional(),
+      colors: z.string().optional(),
+      layout: z.string().optional(),
+      requestedModel: z.string().optional(),
+      aspectRatio: z.string().optional(),
+      resolution: z.enum(["512px", "1K", "2K", "4K"]).optional(),
+      folderId: z.string().optional(),
+    }),
+    handler: async (ctx, a, host) => {
+      const out = await generateImages(ctx, { ...(a as any), surface: "mcp" });
+      const urls = await resolveImageUrls(ctx, out.images.map((i) => i.image.id), `https://${host}`);
+      return {
+        model: out.model,
+        images: out.images.map((i) => ({
+          index: i.index,
+          image_id: i.image.id,
+          prompt: i.prompt,
+          image_url: urls.get(i.image.id)?.imageUrl ?? null,
+          thumb_url: urls.get(i.image.id)?.thumbUrl ?? null,
+        })),
+        failures: out.failures,
+      };
+    },
+  },
   create_session: {
     description: `Start a session from a library image. A session name (title) is REQUIRED. ${SESSION_NOTE}`,
     schema: z.object({
