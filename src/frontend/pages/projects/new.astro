@@ -1,0 +1,28 @@
+---
+/**
+ * @fileoverview `/projects/new` — the onboarding wizard.
+ *
+ * A project is a folder with settings, so this ends by creating one and sending
+ * the user to it. Nothing is written until the last step.
+ */
+import ShellLayout from "@/layouts/ShellLayout.astro";
+import { ProjectWizard } from "@/components/onboarding/ProjectWizard";
+---
+
+<ShellLayout
+  title="New project"
+  description="Name it, choose what it works from, and say what the models should do."
+  section="new"
+>
+  <div class="mx-auto w-full max-w-4xl px-4 pb-16 sm:px-6">
+    <header class="mb-6">
+      <h2 class="text-foreground text-lg font-semibold">New project</h2>
+      <p class="text-muted-foreground mt-1 max-w-2xl text-sm">
+        A project is a folder: it holds its images and the prompt, context and use case that
+        every edit inside it starts from. Anything you leave blank keeps inheriting from the
+        folder above.
+      </p>
+    </header>
+    <ProjectWizard client:load />
+  </div>
+</ShellLayout>

@@ -232,13 +232,52 @@ export async function restoreAsset(ctx: CoreContext, assetId: string): Promise<A
 export async function listAssets(
   ctx: CoreContext,
   input?: { includeArchived?: boolean; limit?: number; offset?: number },
-): Promise<Asset[]> {
-  const base = ctx.db.select().from(assets);
+): Promise<AssetWithImage[]> {
+  const base = ctx.db
+    .select({
+      asset: assets,
+      imageId: libraryImages.id,
+      publicId: libraryImages.publicId,
+      deliveryUrl: libraryImages.deliveryUrl,
+      imageTitle: libraryImages.title,
+    })
+    .from(assets)
+    .innerJoin(libraryImages, eq(assets.libraryImageId, libraryImages.id));
   const query = input?.includeArchived ? base : base.where(isNull(assets.archivedAt));
-  return query
+  const rows = await query
     .orderBy(desc(assets.createdAt))
     .limit(input?.limit ?? 100)
     .offset(input?.offset ?? 0);
+  return rows.map(withImage);
+}
+
+/** An asset plus the picture it stands for. */
+export interface AssetWithImage extends Asset {
+  image: {
+    id: string;
+    publicId: string | null;
+    deliveryUrl: string;
+    title: string | null;
+  };
+}
+
+/** Shape a joined row into the asset + image pair every surface consumes. */
+function withImage(row: {
+  asset: Asset;
+  imageId: string;
+  publicId: string | null;
+  deliveryUrl: string;
+  imageTitle: string | null;
+}): AssetWithImage {
+  return {
+    ...row.asset,
+    image: {
+      id: row.imageId,
+      publicId: row.publicId,
+      deliveryUrl: row.deliveryUrl,
+      title: row.imageTitle,
+    },
+  };
 }
 
 /**
