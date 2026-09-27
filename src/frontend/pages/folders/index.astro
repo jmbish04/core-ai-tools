@@ -1,17 +1,20 @@
 ---
 /**
- * @fileoverview `/folders` — the workspace root.
+ * @fileoverview `/folders` — the workspace. Nested folder tree, the selected
+ * folder's images, and the settings in force there with their provenance.
  *
- * W1.2 scaffold: it proves the shell renders and the route resolves. The nested
- * organiser (`@reui/solution-files-1`) and its real folder data land in W3.1;
- * until then this page states what it is rather than faking a tree, because a
- * mock tree here would be the first thing to drift from the real one.
+ * The organiser is a `client:load` island: it owns selection, fetching and the
+ * folder WebSocket. It reads real D1 rows through `/api` — there is no mock
+ * folder tree anywhere in this build, deliberately, because a mock tree is the
+ * first thing to drift from the real one.
  */
 import ShellLayout from "@/layouts/ShellLayout.astro";
+import { FolderOrganiser } from "@/components/folders/FolderOrganiser";
 
 const subnav = [
-  { id: "all", label: "All folders", href: "/folders" },
+  { id: "folders", label: "Folders", href: "/folders" },
   { id: "assets", label: "Assets", href: "/assets" },
+  { id: "compare", label: "Compare models", href: "/compare" },
 ];
 ---
 
@@ -20,21 +23,9 @@ const subnav = [
   description="Nested project folders — images, prompts and context in one tree."
   section="folders"
   subnav={subnav}
-  subnavCurrent="all"
+  subnavCurrent="folders"
 >
-  <div class="mx-auto w-full max-w-6xl px-4 pb-16 sm:px-6">
-    <div class="bg-card border-border rounded-lg border p-8">
-      <h2 class="text-foreground text-lg font-semibold">Folders</h2>
-      <p class="text-muted-foreground mt-2 max-w-prose text-sm">
-        The nested organiser lands next, wired to real folder data. Nothing here is
-        mocked in the meantime.
-      </p>
-      <a
-        href="/projects/new"
-        class="bg-primary text-primary-foreground ring-offset-background focus-visible:ring-ring mt-6 inline-flex h-9 items-center rounded-md px-4 text-sm font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
-      >
-        Start a project
-      </a>
-    </div>
+  <div class="mx-auto w-full max-w-[110rem] px-4 pb-16 sm:px-6">
+    <FolderOrganiser client:load />
   </div>
 </ShellLayout>
