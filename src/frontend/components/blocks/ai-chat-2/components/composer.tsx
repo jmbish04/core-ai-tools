@@ -54,12 +54,17 @@ export function Composer({
   onModelChange,
   onSend,
   onStop,
+  // The block is a document assistant, so it shipped "Ask about this draft…".
+  // This product's panel is the folder agent and there is no draft — the caller
+  // says what the panel is for.
+  placeholder = "Ask the agent to do something…",
 }: {
   streaming: boolean
   modelId: string
   onModelChange: (id: string) => void
   onSend: (text: string) => void
   onStop: () => void
+  placeholder?: string
 }) {
   const [value, setValue] = useState("")
   /** Context rides with the message it was attached to, then clears. */
@@ -148,7 +153,7 @@ export function Composer({
             value={value}
             onChange={(event) => setValue(event.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask about this draft..."
+            placeholder={placeholder}
             // Starts one line and grows with the text, capped so the transcript
             // never loses the panel.
             className="field-sizing-content max-h-32 min-h-10"

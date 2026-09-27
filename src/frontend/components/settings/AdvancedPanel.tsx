@@ -118,7 +118,7 @@ export function AdvancedPanel() {
     <div className="flex flex-col gap-6">
       {/* System info -------------------------------------------------------- */}
       <Card className="bg-card ring-1 ring-border/40">
-        <CardHeader className="flex flex-row items-start justify-between gap-4">
+        <CardHeader className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:gap-4">
           <div className="space-y-1">
             <CardTitle className="flex items-center gap-2">
               <ServerIcon className="size-4 text-muted-foreground" />
@@ -161,7 +161,7 @@ export function AdvancedPanel() {
 
       {/* Maintenance -------------------------------------------------------- */}
       <Card className="bg-card ring-1 ring-border/40">
-        <CardHeader className="flex flex-row items-start justify-between gap-4">
+        <CardHeader className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:gap-4">
           <div className="space-y-1">
             <CardTitle>Maintenance</CardTitle>
             <CardDescription>Soft resets that restore default state.</CardDescription>

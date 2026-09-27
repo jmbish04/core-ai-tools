@@ -1,119 +1,142 @@
 ---
-import BaseLayout from "@/layouts/BaseLayout.astro";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+/**
+ * @fileoverview `/` — the landing page.
+ *
+ * Section `home` matches no rail record on purpose: nothing in the rail is
+ * current here, and the brand mark is the way back to this page. The cards are
+ * the product's real screens, in the order someone new should meet them.
+ *
+ * The page is otherwise static: it makes no API call, so it renders the same
+ * before and after there is anything in the workspace.
+ */
+import ShellLayout from "@/layouts/ShellLayout.astro";
 import { AssistantModal } from "@/components/assistant/AssistantModal";
+import { shellNavFor } from "@/lib/nav";
 
-const entries = [
-  { href: "/library", icon: "🖼️", title: "Image Library", desc: "Source photos & generated assets. Organize folders and launch new editing sessions." },
-  { href: "/sessions", icon: "🌿", title: "Editing Sessions", desc: "Non-destructive revision tree DAG. Pan, zoom, fork, retry, and diff compare." },
-  { href: "/models", icon: "🧠", title: "Declarative Model Catalog", desc: "Selectable model registry with capability flags (Mask inpainting, Video, Segmentation) & task defaults." },
-  { href: "/prompts", icon: "📝", title: "Prompt & Evidence Library", desc: "Proven prompt templates with revision track record ratings and techniques." },
-  { href: "/connect", icon: "🔌", title: "Claude MCP Interop", desc: "Drive sessions headlessly from Claude.ai or desktop MCP clients live over WebSocket." },
-  { href: "/chat", icon: "💬", title: "AI Assistant", desc: "Interactive AI assistant powered by Cloudflare Agents SDK." },
+const start: { href: string; title: string; desc: string }[] = [
+  {
+    href: "/projects/new",
+    title: "Start a project",
+    desc: "Name it, pick what it works from, and say what the models should do. A project is a folder, so it inherits from whatever it sits inside.",
+  },
+  {
+    href: "/folders",
+    title: "Work in a folder",
+    desc: "The tree, the images in the folder you picked, and the prompt and context in force there — each shown with the folder it came from. An agent sits beside it and edits the tree for you.",
+  },
+  {
+    href: "/compare",
+    title: "Compare models",
+    desc: "State one intent, run it on several models at once, and read each pane with the exact prompt that model was given. The prompt is usually why one came out better.",
+  },
+];
+
+const then: { href: string; title: string; desc: string }[] = [
+  {
+    href: "/assets",
+    title: "Assets",
+    desc: "Images you keep coming back to. Everything later made from one stays traceable to it, through forks and retries.",
+  },
+  {
+    href: "/sessions",
+    title: "Sessions",
+    desc: "One image's edit history as a tree. Retries stack as attempts; nothing you tried is thrown away.",
+  },
+  {
+    href: "/models",
+    title: "Models",
+    desc: "Which model runs which kind of work. Nothing is promoted automatically — the table here is what dispatch reads.",
+  },
+  {
+    href: "/prompts",
+    title: "Prompts",
+    desc: "Wordings that worked, scored by the results they actually produced.",
+  },
+  {
+    href: "/connect",
+    title: "Connect over MCP",
+    desc: "Drive all of it from Claude. Start in the browser, carry on from a chat — the open tab keeps up in realtime.",
+  },
+  {
+    href: "/docs",
+    title: "Docs",
+    desc: "How it is built, the ideas it is organised around, and the live API reference.",
+  },
 ];
 ---
 
-<BaseLayout
-  title="core-ai-tools — Session-based AI Image Editing Platform"
-  description="Session-based AI image editing platform — non-destructive revision tree, diff viewer, mask brush, REST, MCP, and live WebSockets."
+<ShellLayout
+  title="core-ai-tools"
+  description="A folder-organised AI image workspace: nested projects with inheritable settings, an agent that edits the tree beside you, and every picture traceable to the asset it came from."
+  {...shellNavFor(Astro.url.pathname)}
 >
-  <div class="container mx-auto max-w-7xl px-4 py-12">
-    <!-- Hero Section -->
-    <section class="mb-16 flex flex-col gap-6 rounded-2xl bg-card p-8 md:p-12 ring-1 ring-border/40 relative overflow-hidden">
-      <div class="flex items-center gap-2">
-        <span class="rounded-full bg-primary/10 px-3 py-1 font-mono text-xs font-semibold text-primary ring-1 ring-primary/30">
-          Cloudflare Workers &bull; Astro SSR &bull; D1 &bull; Durable Objects &bull; CF Images
-        </span>
-      </div>
-
-      <h1 class="max-w-4xl text-4xl sm:text-5xl font-semibold tracking-tight text-foreground leading-[1.15]">
-        Session-based AI image editing with non-destructive revision trees.
-      </h1>
-
-      <p class="max-w-3xl text-base sm:text-lg leading-relaxed text-muted-foreground">
-        Pick a source photo, describe edits in natural language or structured JSON, and every attempt is recorded as a node in a revision tree. Fork from any point, retry edits without destroying history, and compare perspective drift with our 3-mode diff viewer.
+  <div class="mx-auto w-full max-w-6xl px-4 pb-20 sm:px-6">
+    <section class="bg-card border-border mb-12 rounded-xl border p-6 sm:p-10">
+      <p class="text-muted-foreground font-mono text-[11px] tracking-widest uppercase">
+        Folders · Assets · Agent · Multi-model
       </p>
-
-      <div class="flex flex-wrap gap-4 pt-2">
-        <a href="/sessions">
-          <Button size="lg" className="gap-2 bg-primary text-primary-foreground font-medium py-6 px-6">
-            Open Sessions Workspace &rarr;
-          </Button>
+      <h2 class="text-foreground mt-4 max-w-3xl text-2xl leading-tight font-semibold tracking-tight sm:text-4xl">
+        An image workspace organised the way you already think about the work.
+      </h2>
+      <p class="text-muted-foreground mt-5 max-w-2xl text-sm leading-relaxed sm:text-base">
+        Images live in nested folders. Each folder carries the prompt, context and use case
+        every edit inside it starts from, inherited from the folder above unless you say
+        otherwise. An agent works beside the tree through the same tools an MCP client uses,
+        and nothing is ever overwritten — every attempt is a node you can go back to.
+      </p>
+      <div class="mt-7 flex flex-wrap gap-3">
+        <a
+          href="/projects/new"
+          class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md px-5 py-2.5 text-sm font-medium transition-colors"
+        >
+          Start a project
         </a>
-        <a href="/library">
-          <Button size="lg" variant="outline" className="gap-2 font-medium py-6 px-6 ring-1 ring-border/40">
-            Browse Image Library
-          </Button>
-        </a>
-        <a href="/connect">
-          <Button size="lg" variant="ghost" className="gap-2 text-muted-foreground hover:text-foreground">
-            Connect Claude MCP
-          </Button>
+        <a
+          href="/folders"
+          class="bg-muted hover:bg-muted/70 rounded-md px-5 py-2.5 text-sm font-medium transition-colors"
+        >
+          Open the workspace
         </a>
       </div>
     </section>
 
-    {/* Platform Entry Points */}
-    <section class="mb-16">
-      <h2 class="mb-6 font-mono text-xs uppercase tracking-widest text-muted-foreground">
-        PLATFORM SURFACES
-      </h2>
-
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {entries.map((e) => (
-          <a href={e.href} class="block group">
-            <Card className="h-full bg-card ring-1 ring-border/40 transition-all hover:ring-primary/50">
-              <CardHeader className="pb-2">
-                <div class="mb-2 text-3xl">{e.icon}</div>
-                <CardTitle className="text-base font-semibold group-hover:text-primary transition-colors">
-                  {e.title}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <CardDescription className="text-xs text-muted-foreground leading-relaxed">
-                  {e.desc}
-                </CardDescription>
-              </CardContent>
-            </Card>
+    <section class="mb-12">
+      <h3 class="text-muted-foreground mb-5 font-mono text-[11px] tracking-widest uppercase">
+        Where to start
+      </h3>
+      <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {start.map((card) => (
+          <a
+            href={card.href}
+            class="group bg-card border-border hover:border-border/70 flex flex-col rounded-lg border p-5 transition-colors"
+          >
+            <span class="text-foreground text-base font-semibold">{card.title}</span>
+            <span class="text-muted-foreground mt-2 flex-1 text-sm leading-relaxed">{card.desc}</span>
+            <span aria-hidden="true" class="text-muted-foreground mt-4 text-sm transition-transform group-hover:translate-x-0.5">
+              &rarr;
+            </span>
           </a>
         ))}
       </div>
     </section>
 
-    {/* Architectural Highlights */}
-    <section class="mb-8">
-      <h2 class="mb-6 font-mono text-xs uppercase tracking-widest text-muted-foreground">
-        ARCHITECTURE &amp; INTEROPERABILITY
-      </h2>
-
-      <div class="grid grid-cols-1 gap-5 md:grid-cols-3">
-        <div class="rounded-xl bg-card p-6 ring-1 ring-border/40 flex flex-col gap-2">
-          <span class="font-mono text-xs text-primary font-bold">01 &bull; ONE CORE, THREE SURFACES</span>
-          <h3 class="font-semibold text-foreground text-sm">Identical REST, MCP &amp; UI capabilities</h3>
-          <p class="text-xs text-muted-foreground leading-relaxed">
-            Every operation — session creation, revision submission, forking, retrying, mask authoring, and HITL approval — runs through one unified domain core.
-          </p>
-        </div>
-
-        <div class="rounded-xl bg-card p-6 ring-1 ring-border/40 flex flex-col gap-2">
-          <span class="font-mono text-xs text-primary font-bold">02 &bull; NON-DESTRUCTIVE DAG TREE</span>
-          <h3 class="font-semibold text-foreground text-sm">Revision DAG &amp; Retry Stacking</h3>
-          <p class="text-xs text-muted-foreground leading-relaxed">
-            Every edit produces a node in a revision graph. Retries of an edit stack as attempt iterations inside one node, while new directions branch into distinct forks.
-          </p>
-        </div>
-
-        <div class="rounded-xl bg-card p-6 ring-1 ring-border/40 flex flex-col gap-2">
-          <span class="font-mono text-xs text-primary font-bold">03 &bull; REALTIME SYNC &amp; DIFF VIEWER</span>
-          <h3 class="font-semibold text-foreground text-sm">WebSockets &amp; Perspective Drift Check</h3>
-          <p class="text-xs text-muted-foreground leading-relaxed">
-            Per-session Durable Objects stream progress events to open tabs. Compare revisions with Slider, Side-by-Side, or Onion Skin mode with structural drift edge overlay.
-          </p>
-        </div>
+    <section>
+      <h3 class="text-muted-foreground mb-5 font-mono text-[11px] tracking-widest uppercase">
+        Everything else
+      </h3>
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {then.map((card) => (
+          <a
+            href={card.href}
+            class="group bg-card border-border hover:border-border/70 flex flex-col rounded-lg border p-5 transition-colors"
+          >
+            <span class="text-foreground text-sm font-semibold">{card.title}</span>
+            <span class="text-muted-foreground mt-2 text-sm leading-relaxed">{card.desc}</span>
+          </a>
+        ))}
       </div>
     </section>
   </div>
 
   <AssistantModal client:only="react" />
-</BaseLayout>
+</ShellLayout>

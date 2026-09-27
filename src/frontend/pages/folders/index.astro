@@ -10,20 +10,13 @@
  */
 import ShellLayout from "@/layouts/ShellLayout.astro";
 import { FolderOrganiser } from "@/components/folders/FolderOrganiser";
-
-const subnav = [
-  { id: "folders", label: "Folders", href: "/folders" },
-  { id: "assets", label: "Assets", href: "/assets" },
-  { id: "compare", label: "Compare models", href: "/compare" },
-];
+import { shellNavFor } from "@/lib/nav";
 ---
 
 <ShellLayout
   title="Folders"
   description="Nested project folders — images, prompts and context in one tree."
-  section="folders"
-  subnav={subnav}
-  subnavCurrent="folders"
+  {...shellNavFor(Astro.url.pathname)}
 >
   <div class="mx-auto w-full max-w-[110rem] px-4 pb-16 sm:px-6">
     <FolderOrganiser client:load />

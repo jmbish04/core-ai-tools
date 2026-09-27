@@ -19,6 +19,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import {
+  LIBRARY_FOLDERS_PATH,
+  LIBRARY_IMAGES_PATH,
+  folderSettingsPath,
+} from "@/lib/endpoints";
 import { buildFolderTree } from "./types";
 import type { FolderNode, FolderRow, ImageRow, ResolvedFolderSettings } from "./types";
 import { FolderSettingsCard } from "./FolderSettingsCard";
@@ -39,11 +44,12 @@ export function FolderOrganiser() {
   const [images, setImages] = useState<ImageRow[] | null>(null);
   const [settings, setSettings] = useState<ResolvedFolderSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [bodyError, setBodyError] = useState<string | null>(null);
   const [live, setLive] = useState(false);
 
   const loadFolders = useCallback(async () => {
     try {
-      const res = await apiGet<{ folders: FolderRow[] }>("library/folders");
+      const res = await apiGet<{ folders: FolderRow[] }>(LIBRARY_FOLDERS_PATH);
       setFolders(res.folders);
       setError(null);
     } catch (err) {
@@ -55,13 +61,26 @@ export function FolderOrganiser() {
     if (!folderId) {
       setImages(null);
       setSettings(null);
+      setBodyError(null);
       return;
     }
     const [imgs, resolved] = await Promise.allSettled([
-      apiGet<{ images: ImageRow[] }>("library", { folderId }),
-      apiGet<ResolvedFolderSettings>(`library/folders/${folderId}/settings`),
+      apiGet<{ images: ImageRow[] }>(LIBRARY_IMAGES_PATH, { folderId }),
+      apiGet<ResolvedFolderSettings>(folderSettingsPath(folderId)),
     ]);
-    setImages(imgs.status === "fulfilled" ? imgs.value.images : []);
+    // A failed read is NOT an empty folder. Substituting `[]` here is how this
+    // screen spent its whole life reporting "0 images" for every folder while
+    // the request behind it 404'd — the one failure mode a screenshot cannot
+    // tell apart from the truth.
+    if (imgs.status === "fulfilled") {
+      setImages(imgs.value.images);
+      setBodyError(null);
+    } else {
+      setImages(null);
+      setBodyError(
+        imgs.reason instanceof Error ? imgs.reason.message : "Could not load this folder's images.",
+      );
+    }
     setSettings(resolved.status === "fulfilled" ? resolved.value : null);
   }, []);
 
@@ -178,6 +197,7 @@ export function FolderOrganiser() {
           folder={selectedFolder}
           images={images}
           live={live}
+          error={bodyError}
           onChanged={() => void loadFolderBody(selected)}
         />
         <FolderSettingsCard

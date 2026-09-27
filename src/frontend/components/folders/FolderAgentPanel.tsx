@@ -138,7 +138,11 @@ export function FolderAgentPanel({
   };
 
   return (
-    <section className="bg-card border-border flex h-[calc(100svh-12rem)] min-h-[28rem] flex-col rounded-lg border">
+    // The viewport height belongs to the sticky third column only. Below xl the
+    // panel is stacked under the folder, where `100svh` made it a ~700px box of
+    // empty space between the settings card and the composer — the transcript
+    // grows into its height, so it has to be bounded, not filled.
+    <section className="bg-card border-border flex h-[32rem] flex-col rounded-lg border xl:h-[calc(100svh-12rem)] xl:min-h-[28rem]">
       <header className="border-border border-b px-4 py-3">
         <h2 className="text-foreground text-sm font-semibold">Agent</h2>
         <p className="text-muted-foreground mt-0.5 text-xs">
@@ -198,6 +202,9 @@ export function FolderAgentPanel({
           streaming={streaming}
           modelId={modelId}
           onModelChange={setModelId}
+          placeholder={
+            folder ? `Ask the agent about ${folder.name}…` : "Pick a folder to work in…"
+          }
           onSend={(t) => void send(t)}
           onStop={() => {
             inFlight.current?.abort();

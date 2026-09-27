@@ -22,4 +22,6 @@ import type { D1Migration } from "cloudflare:test";
 export type TestEnv = Cloudflare.Env & {
   /** The project's real migrations, read from ./drizzle by vitest.config.mts. */
   TEST_MIGRATIONS: D1Migration[];
+  /** The app shell's rail section ids, read out of the block's own data module. */
+  RAIL_SECTION_IDS: string[];
 };

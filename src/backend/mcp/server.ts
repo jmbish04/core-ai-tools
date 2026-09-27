@@ -49,6 +49,7 @@ import {
   listSessionsForImage,
   listTemplates,
   moveFolder,
+  placeAssetInFolder,
   promoteImageToAsset,
   requireImageByPublicId,
   resolveSettings,
@@ -540,6 +541,17 @@ const TOOLS: Record<string, ToolDef> = {
       contextText: z.string().nullish(),
     }),
     handler: (ctx, a) => promoteImageToAsset(ctx, { ...(definedKeys(a) as any) }),
+  },
+  place_asset_in_folder: {
+    description:
+      "Drop a working copy of an asset into a folder so a session can be started from it there. The inverse of promote_image_to_asset: the image row is copied (same pixels, new row, fresh public_id) and the ASSET stays put, so two folders can work from one asset at once. The copy inherits the asset's lineage, so anything generated from it still shows up in list_asset_iterations. folderId null puts it at the library root. Returns { image, assetIds }. Visible in the open folder view in realtime.",
+    schema: z.object({
+      assetId: z.string(),
+      folderId: z.string().nullable(),
+      role: z.enum(["base", "reference", "inject"]).nullish(),
+      usageInstructions: z.string().nullish(),
+    }),
+    handler: (ctx, a) => placeAssetInFolder(ctx, { ...(definedKeys(a) as any) }),
   },
   list_assets: {
     description: "List assets, newest first. Archived assets are excluded unless includeArchived is true.",

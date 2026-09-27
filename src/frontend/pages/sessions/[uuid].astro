@@ -1,15 +1,27 @@
 ---
-import BaseLayout from "@/layouts/BaseLayout.astro";
+/**
+ * @fileoverview `/sessions/[uuid]` — one session's revision tree.
+ *
+ * Thin shell: the island fetches the session, its tree and the realtime channel,
+ * so this file supplies only the chrome and the route param. Same `section` and
+ * sub-nav as the list, so the pill does not shift when a session is opened.
+ */
+import ShellLayout from "@/layouts/ShellLayout.astro";
 import { SessionDetail } from "@/components/sessions/SessionDetail";
 import { AssistantModal } from "@/components/assistant/AssistantModal";
+import { shellNavFor } from "@/lib/nav";
 
 const { uuid } = Astro.params;
 ---
 
-<BaseLayout title="Session" description="Session detail — revision tree, realtime edits, and a session-aware assistant.">
-  <main class="container mx-auto flex max-w-7xl flex-col gap-6 px-4 py-12">
+<ShellLayout
+  title="Session"
+  description="One session — its revision tree, realtime edits, and a session-aware assistant."
+  {...shellNavFor(Astro.url.pathname)}
+>
+  <div class="mx-auto flex w-full max-w-[100rem] flex-col gap-6 px-4 pb-16 sm:px-6">
     <SessionDetail uuid={uuid!} client:load />
-  </main>
+  </div>
 
   {/* Quiet, session-scoped assistant. Takes no layout space until opened, then
       floats over the workbench — so the tree + image stage keep full width. */}
@@ -30,4 +42,4 @@ const { uuid } = Astro.params;
       "Which model fits this edit best?",
     ]}
   />
-</BaseLayout>
+</ShellLayout>

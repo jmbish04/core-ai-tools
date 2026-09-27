@@ -35,7 +35,7 @@ import {
 // The demo's operator/avatar menu is gone — this app has no users. The rail's
 // foot carries the theme toggle instead (~/AGENTS-frontend.md).
 import { ThemeToggle } from "@/components/ThemeToggle"
-import { ReuiMark } from "./reui-mark"
+import { ReuiMarkLink } from "./reui-mark"
 
 // Committed dark ink. The design's own drop and inset, plus a blur that
 // stands in for the glass refraction CSS cannot reproduce.
@@ -189,7 +189,7 @@ export function IconRail({
       className={`h-full w-12 shrink-0 items-center rounded-full ${RAIL_SURFACE}`}
     >
       <SidebarHeader className="w-full items-center px-2 py-3">
-        <ReuiMark />
+        <ReuiMarkLink />
       </SidebarHeader>
       {/* SidebarContent hides its scrollbar; this rail is tall enough to
           need one, so the thin bar comes back in the rail's own ink. */}

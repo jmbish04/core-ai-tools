@@ -25,7 +25,7 @@ import {
   GLASS_MENU_ITEM_CURRENT,
 } from "./glass-menu"
 import { IconRail, RAIL_SURFACE } from "./icon-rail"
-import { ReuiMark } from "./reui-mark"
+import { ReuiMarkLink } from "./reui-mark"
 import { MenuIcon, ChevronDownIcon } from "lucide-react"
 
 // The rail's own ink, laid on its side: below lg the shell leads with a bar
@@ -61,7 +61,7 @@ export function MobileHeader({
       // 6px all round; the trailing icon adds its own inset on that side.
       className={`sticky top-3 z-10 flex items-center gap-1 rounded-full p-1.5 lg:hidden ${RAIL_SURFACE}`}
     >
-      <ReuiMark />
+      <ReuiMarkLink />
 
       <span className="flex-1" />
 

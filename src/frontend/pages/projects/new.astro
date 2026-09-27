@@ -7,12 +7,13 @@
  */
 import ShellLayout from "@/layouts/ShellLayout.astro";
 import { ProjectWizard } from "@/components/onboarding/ProjectWizard";
+import { shellNavFor } from "@/lib/nav";
 ---
 
 <ShellLayout
   title="New project"
   description="Name it, choose what it works from, and say what the models should do."
-  section="new"
+  {...shellNavFor(Astro.url.pathname)}
 >
   <div class="mx-auto w-full max-w-4xl px-4 pb-16 sm:px-6">
     <header class="mb-6">

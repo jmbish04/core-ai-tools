@@ -1,10 +1,23 @@
 ---
-import BaseLayout from "@/layouts/BaseLayout.astro";
+/**
+ * @fileoverview `/models` — the model registry and what each task defaults to.
+ *
+ * The D1 `task_model_defaults` table is authoritative: nothing is promoted
+ * automatically, so this page is where a new model actually gets used.
+ */
+import ShellLayout from "@/layouts/ShellLayout.astro";
 import { ModelsView } from "@/components/models/ModelsView";
+import { shellNavFor } from "@/lib/nav";
 ---
 
-<BaseLayout title="Model Registry — core-ai-tools" description="Declarative model catalog and task default mappings.">
-  <main class="container mx-auto max-w-7xl px-4 py-8">
+<ShellLayout
+  title="Models"
+  description="The pinned model catalog, its capabilities, and the default each task resolves to."
+  {...shellNavFor(Astro.url.pathname)}
+>
+  {/* No page header: the island renders its own title and stats. Two of them
+      is what the folder hero and contents header did, one level up. */}
+  <div class="mx-auto w-full max-w-[90rem] px-4 pb-16 sm:px-6">
     <ModelsView client:load />
-  </main>
-</BaseLayout>
+  </div>
+</ShellLayout>

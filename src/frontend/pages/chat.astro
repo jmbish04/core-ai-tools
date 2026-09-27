@@ -1,11 +1,22 @@
 ---
-import BaseLayout from "@/layouts/BaseLayout.astro";
+/**
+ * @fileoverview `/chat` — the general assistant.
+ *
+ * Not the folder agent: this one talks, the folder agent edits. The island is
+ * browser-only because it transitively depends on `agents/react` + PartySocket,
+ * whose `useAgent` hits a null React dispatcher during workerd SSR.
+ */
+import ShellLayout from "@/layouts/ShellLayout.astro";
 import { AgentChat } from "@/components/AgentChat";
+import { shellNavFor } from "@/lib/nav";
 ---
 
-<BaseLayout
-  title="AI Assistant Chat"
-  description="Chat with AI agents powered by Cloudflare Agents SDK and Workers AI"
+<ShellLayout
+  title="Assistant"
+  description="Chat with the workspace assistant, backed by the ChatBroker Durable Object."
+  {...shellNavFor(Astro.url.pathname)}
 >
-  <AgentChat client:only="react" />
-</BaseLayout>
+  <div class="mx-auto w-full max-w-5xl px-4 pb-16 sm:px-6">
+    <AgentChat client:only="react" />
+  </div>
+</ShellLayout>

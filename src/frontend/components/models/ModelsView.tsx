@@ -217,7 +217,9 @@ export function ModelsView() {
 
       {/* Filter Row Chips */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-card p-3 ring-1 ring-border/40">
-        <div className="flex items-center gap-2">
+        {/* Wraps below sm: four capability chips on one row ran off the right
+            edge at 375, and the last of them was unreachable. */}
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <span className="font-mono text-xs text-muted-foreground uppercase mr-1">
             Capabilities:
           </span>

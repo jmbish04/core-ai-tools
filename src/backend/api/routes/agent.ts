@@ -39,6 +39,32 @@ agentRouter.openapi(
                 .optional(),
               /** Defaults to guardian's `auto` alias, which routes within budget. */
               model: z.string().optional(),
+              /**
+               * `onboarding` runs the wizard's copilot: no tools (the project
+               * folder does not exist yet) and a settled `proposal` in the
+               * response for the wizard to write on finish.
+               */
+              mode: z.enum(["folder", "onboarding"]).optional(),
+              /** The wizard's draft so far. Only read in `onboarding` mode. */
+              draft: z
+                .object({
+                  name: z.string().nullish(),
+                  parentFolderName: z.string().nullish(),
+                  inherited: z
+                    .object({
+                      defaultPrompt: z.string().nullish(),
+                      contextText: z.string().nullish(),
+                      useCase: z.string().nullish(),
+                    })
+                    .optional(),
+                  useCase: z.string().nullish(),
+                  scenario: z.string().nullish(),
+                  defaultPrompt: z.string().nullish(),
+                  contextText: z.string().nullish(),
+                  images: z.array(z.object({ title: z.string(), role: z.string() })).max(50).optional(),
+                  assets: z.array(z.string()).max(50).optional(),
+                })
+                .optional(),
             }),
           },
         },
@@ -53,6 +79,8 @@ agentRouter.openapi(
       message: body.message,
       history: body.history,
       model: body.model,
+      mode: body.mode,
+      draft: body.draft as never,
     });
     return c.json(turn);
   },

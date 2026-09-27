@@ -8,20 +8,13 @@
  */
 import ShellLayout from "@/layouts/ShellLayout.astro";
 import { CompareWorkspace } from "@/components/compare/CompareWorkspace";
-
-const subnav = [
-  { id: "folders", label: "Folders", href: "/folders" },
-  { id: "assets", label: "Assets", href: "/assets" },
-  { id: "compare", label: "Compare models", href: "/compare" },
-];
+import { shellNavFor } from "@/lib/nav";
 ---
 
 <ShellLayout
   title="Compare models"
   description="One intent, several models, side by side — with the prompt each one received."
-  section="compare"
-  subnav={subnav}
-  subnavCurrent="compare"
+  {...shellNavFor(Astro.url.pathname)}
 >
   <div class="mx-auto w-full max-w-[100rem] px-4 pb-16 sm:px-6">
     <header class="mb-6">

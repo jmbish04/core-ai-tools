@@ -12,8 +12,11 @@
 import type { ReactNode } from "react"
 import {
   FolderTreeIcon,
+  ImageIcon,
   ImagesIcon,
+  GitBranchIcon,
   GitCompareArrowsIcon,
+  MessageSquareIcon,
   SparklesIcon,
   CpuIcon,
   BookOpenIcon,
@@ -40,10 +43,22 @@ export const RAIL_FLEET: RailRecord[] = [
     icon: <FolderTreeIcon className="size-4" aria-hidden="true" />,
   },
   {
+    id: "library",
+    label: "Images",
+    href: "/library",
+    icon: <ImageIcon className="size-4" aria-hidden="true" />,
+  },
+  {
     id: "assets",
     label: "Assets",
     href: "/assets",
     icon: <ImagesIcon className="size-4" aria-hidden="true" />,
+  },
+  {
+    id: "sessions",
+    label: "Sessions",
+    href: "/sessions",
+    icon: <GitBranchIcon className="size-4" aria-hidden="true" />,
   },
   {
     id: "compare",
@@ -66,6 +81,12 @@ export const RAIL_OPERATIONS: RailRecord[] = [
     label: "Models",
     href: "/models",
     icon: <CpuIcon className="size-4" aria-hidden="true" />,
+  },
+  {
+    id: "assistant",
+    label: "Assistant",
+    href: "/chat",
+    icon: <MessageSquareIcon className="size-4" aria-hidden="true" />,
   },
   {
     id: "docs",

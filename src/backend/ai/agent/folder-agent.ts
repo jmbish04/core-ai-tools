@@ -32,6 +32,8 @@ import { callToolByName } from "@/backend/mcp/server";
 import { createCoreContext, resolveSettings } from "@/backend/core";
 import { listLibrary, requireFolder } from "@/backend/core";
 import { getAiGatewayToken } from "@/backend/utils/secrets";
+import { buildOnboardingInstructions, parseCopilotReply } from "./onboarding-copilot";
+import type { OnboardingDraftContext, SettingsProposal } from "./onboarding-copilot";
 
 /** Guardian's OpenAI-compatible surface. The host is a placeholder: the service
  *  binding decides where it actually goes. */
@@ -69,6 +71,12 @@ export interface FolderAgentTurn {
   /** Tools the model actually invoked, in order, with what each one did. */
   toolCalls: ToolCallRecord[];
   model: string;
+  /**
+   * Settings the onboarding copilot settled this turn, for the wizard to write
+   * on finish. Absent for a normal folder turn, and null for a copilot turn that
+   * only asked a question.
+   */
+  proposal?: SettingsProposal | null;
 }
 
 /** One message in the conversation so far. */
@@ -227,19 +235,38 @@ async function buildInstructions(env: Env, folderId: string | null): Promise<str
  */
 export async function runFolderTurn(
   env: Env,
-  input: { folderId: string | null; message: string; history?: AgentMessage[]; model?: string },
+  input: {
+    folderId: string | null;
+    message: string;
+    history?: AgentMessage[];
+    model?: string;
+    /**
+     * `onboarding` is the wizard's copilot: the project folder does not exist
+     * yet, so the copilot PROPOSES settings in its reply instead of calling
+     * `set_folder_settings`, and the wizard writes them on finish. It gets no
+     * tools for the same reason — there is nothing for it to edit.
+     */
+    mode?: "folder" | "onboarding";
+    /** The wizard's draft so far. Only read in `onboarding` mode. */
+    draft?: OnboardingDraftContext;
+  },
 ): Promise<FolderAgentTurn> {
   const model = input.model ?? "auto";
   const chatModel = await buildModel(env, model);
+  const onboarding = input.mode === "onboarding";
 
   const toolCalls: ToolCallRecord[] = [];
-  const tools = AGENT_TOOL_NAMES.map((n) => asAgentTool(env, n, toolCalls)).filter(
-    (t): t is NonNullable<ReturnType<typeof asAgentTool>> => t !== null,
-  );
+  const tools = onboarding
+    ? []
+    : AGENT_TOOL_NAMES.map((n) => asAgentTool(env, n, toolCalls)).filter(
+        (t): t is NonNullable<ReturnType<typeof asAgentTool>> => t !== null,
+      );
 
   const agent = new Agent({
-    name: "Folder agent",
-    instructions: await buildInstructions(env, input.folderId),
+    name: onboarding ? "Onboarding copilot" : "Folder agent",
+    instructions: onboarding
+      ? buildOnboardingInstructions(input.draft ?? {})
+      : await buildInstructions(env, input.folderId),
     model: chatModel,
     tools,
   });
@@ -250,11 +277,12 @@ export async function runFolderTurn(
     { role: "user" as const, content: input.message },
   ];
 
-  const result = await run(agent, conversation as never, { maxTurns: 8 });
+  // One turn is enough with no tools; the folder agent needs room to chain them.
+  const result = await run(agent, conversation as never, { maxTurns: onboarding ? 2 : 8 });
+  const raw = result.finalOutput ?? "";
 
-  return {
-    reply: result.finalOutput ?? "",
-    toolCalls,
-    model,
-  };
+  if (!onboarding) return { reply: raw, toolCalls, model };
+
+  const { reply, proposal } = parseCopilotReply(raw);
+  return { reply, toolCalls, model, proposal };
 }

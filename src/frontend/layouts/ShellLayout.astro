@@ -37,7 +37,11 @@ const { title, description, section = "folders", subnav = [], subnavCurrent = ""
   <head>
     <HeadSEO title={title} description={description} />
     <script is:inline>
-      // Dark unless the user explicitly chose light in this browser.
+      // Dark unless the user explicitly chose light in this browser. This MUST
+      // stay in step with `lib/theme.ts#initialTheme`, which the toggle uses —
+      // it is inline and un-bundled because it has to run before first paint, so
+      // it cannot import that module. The OS preference is never consulted:
+      // falling back to it is how a dark-first app renders light.
       (() => {
         try {
           document.documentElement.classList.toggle(

@@ -6,3 +6,4 @@
 
 export * from "./assets";
 export * from "./lineage";
+export * from "./place";
