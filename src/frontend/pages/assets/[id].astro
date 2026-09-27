@@ -1,0 +1,32 @@
+---
+/**
+ * @fileoverview `/assets/[id]` — one asset, and every image descended from it.
+ *
+ * Thin shell: the island fetches the asset, its iterations and the folder names,
+ * so this file only supplies the shell and the route param. Matches
+ * `pages/assets/index.astro` — same `section` and the same sub-nav, so the pill
+ * nav does not shift when you open an asset.
+ */
+import ShellLayout from "@/layouts/ShellLayout.astro";
+import { AssetDetail } from "@/components/evolution/AssetDetail";
+
+const { id } = Astro.params;
+
+const subnav = [
+  { id: "folders", label: "Folders", href: "/folders" },
+  { id: "assets", label: "Assets", href: "/assets" },
+  { id: "compare", label: "Compare models", href: "/compare" },
+];
+---
+
+<ShellLayout
+  title="Asset"
+  description="One asset, and every image that descends from it."
+  section="assets"
+  subnav={subnav}
+  subnavCurrent="assets"
+>
+  <div class="mx-auto w-full max-w-[90rem] px-4 pb-16 sm:px-6">
+    <AssetDetail id={id!} client:load />
+  </div>
+</ShellLayout>
