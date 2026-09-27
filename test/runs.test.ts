@@ -135,11 +135,14 @@ describe("createModelRun — the intent is recorded with each model's rewritten 
   it("rewrites a masked intent for the mask channel and records that the mask went in-band", async () => {
     const c = ctx();
     const img = await seedImage(c);
+    // A RASTERISED mask: the bytes exist, so a native-channel model can be sent
+    // them. `createMask` alone leaves cfImageId null — that case is the next test.
     const mask = await createMask(c, {
       sourceImageId: img.id,
       kind: "bbox",
       geometry: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
       label: "the sofa",
+      cfImageId: `cf-mask-${crypto.randomUUID()}`,
     });
 
     const { results } = await createModelRun(c, {
@@ -166,6 +169,30 @@ describe("createModelRun — the intent is recorded with each model's rewritten 
     for (const id of [NATIVE_MASK, NARRATIVE]) {
       expect(byModel[id].status).toBe("queued");
     }
+  });
+
+  it("does not claim a mask went in-band when the mask has no raster to send", async () => {
+    // A semantic mask sits `proposed` with no cfImageId until it is rasterised,
+    // and execution only attaches bytes when one exists. Recording maskSent from
+    // model capability alone made the row claim a mask the provider never got,
+    // so the comparison read as mask-vs-mask when it was prompt-vs-prompt.
+    const c = ctx();
+    const img = await seedImage(c);
+    const unrasterised = await createMask(c, {
+      sourceImageId: img.id,
+      kind: "bbox",
+      geometry: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+      label: "the sofa",
+    });
+
+    const { results } = await createModelRun(c, {
+      prompt: "make the sofa green",
+      models: [NATIVE_MASK],
+      inputImageId: img.id,
+      maskId: unrasterised.id,
+    });
+
+    expect(results[0].maskSent).toBe(false);
   });
 
   it("stores a different prompt_sent per register for the same unmasked intent", async () => {

@@ -49,6 +49,7 @@
     "@hono/zod-openapi": "^1.5.1",
     "@hono/zod-validator": "^0.9.0",
     "@openai/agents": "0.18.0",
+    "@openai/agents-openai": "0.18.0",
     "@platejs/basic-nodes": "53.0.0",
     "@platejs/code-block": "53.0.0",
     "@platejs/indent": "53.0.0",

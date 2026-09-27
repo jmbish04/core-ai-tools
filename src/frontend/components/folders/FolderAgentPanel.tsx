@@ -16,7 +16,7 @@
  * reported success in prose would be worse than one that says nothing.
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ChatThread } from "@/components/blocks/ai-chat-2/components/chat-thread";
 import { Composer } from "@/components/blocks/ai-chat-2/components/composer";
@@ -64,6 +64,12 @@ export function FolderAgentPanel({
   const [error, setError] = useState<string | null>(null);
   // The agent takes plain history; keep it beside the rendered transcript.
   const history = useRef<{ role: "user" | "assistant"; content: string }[]>([]);
+  /** Aborts the in-flight turn. "Stop" that only clears a flag is not a stop —
+   *  the reply still lands, and the freed gate lets a second turn run against the
+   *  same folder concurrently. */
+  const inFlight = useRef<AbortController | null>(null);
+
+  useEffect(() => () => inFlight.current?.abort(), []);
 
   const send = useCallback(
     async (text: string) => {
@@ -71,6 +77,8 @@ export function FolderAgentPanel({
       if (!trimmed || streaming) return;
       setError(null);
       setStreaming(true);
+      const controller = new AbortController();
+      inFlight.current = controller;
 
       const userMessage: ChatMessageRecord = {
         id: `u-${Date.now()}`,
@@ -86,7 +94,11 @@ export function FolderAgentPanel({
           message: trimmed,
           history: history.current.slice(-20),
           model: modelId,
-        });
+        }, { signal: controller.signal });
+
+        // Stopped while this was in flight: drop the reply rather than appending
+        // it after whatever the user said next.
+        if (controller.signal.aborted) return;
 
         const replyText = `${turn.reply}${toolLine(turn.toolCalls)}`;
         setMessages((prev) => [
@@ -108,9 +120,13 @@ export function FolderAgentPanel({
         // the socket, which the user has no reason to know about.
         if (turn.toolCalls.some((c) => c.ok)) onChanged();
       } catch (err) {
+        if (controller.signal.aborted) return;
         setError(err instanceof Error ? err.message : "The agent could not be reached.");
       } finally {
-        setStreaming(false);
+        if (inFlight.current === controller) {
+          inFlight.current = null;
+          setStreaming(false);
+        }
       }
     },
     [folder?.id, modelId, onChanged, streaming],
@@ -183,7 +199,11 @@ export function FolderAgentPanel({
           modelId={modelId}
           onModelChange={setModelId}
           onSend={(t) => void send(t)}
-          onStop={() => setStreaming(false)}
+          onStop={() => {
+            inFlight.current?.abort();
+            inFlight.current = null;
+            setStreaming(false);
+          }}
         />
       </div>
     </section>

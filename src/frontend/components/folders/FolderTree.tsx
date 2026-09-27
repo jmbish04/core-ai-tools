@@ -79,11 +79,12 @@ export function FolderTree({
     setArchived(res.folders);
   }, []);
 
-  // Keep the count honest: an archive done by the agent or another surface should
-  // show up here too, so re-read whenever the live tree changes.
+  // Read it once, and again when the section is opened — an archive done by the
+  // agent or another surface is then visible without costing a second request on
+  // every folder mutation for a panel that is usually closed.
   useEffect(() => {
     void loadArchive();
-  }, [loadArchive, nodes]);
+  }, [loadArchive, showArchive]);
 
   /**
    * Archive / restore. No confirm dialog (browser alerts are banned here, and the

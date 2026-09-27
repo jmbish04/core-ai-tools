@@ -22,7 +22,8 @@
  * while they talk.
  */
 
-import { Agent, run, setDefaultOpenAIClient, setOpenAIAPI, setTracingDisabled, tool } from "@openai/agents";
+import { Agent, run, setTracingDisabled, tool } from "@openai/agents";
+import { OpenAIChatCompletionsModel } from "@openai/agents-openai";
 import OpenAI from "openai";
 import { z } from "zod";
 
@@ -77,14 +78,19 @@ export interface AgentMessage {
 }
 
 /**
- * Point the SDK at guardian. Called per request because a Worker isolate is
- * shared across folders and the token is resolved per request (rotation without
- * redeploy is the reason `utils/secrets.ts` does not cache).
+ * Build a model bound to THIS request's guardian client.
+ *
+ * Deliberately not `setDefaultOpenAIClient`: that is module-global in the SDK,
+ * and a Worker isolate serves concurrent requests. Setting it per request means
+ * a turn can finish against a client another request installed underneath it —
+ * invisible while every request builds the same client, and wrong the moment the
+ * gateway token is rotated (utils/secrets.ts deliberately does not cache, so
+ * rotation takes effect without a redeploy). The model owns its client instead.
  *
  * @throws Error when the gateway token is unresolvable — the agent fails loudly
  *   rather than silently talking to OpenAI directly and escaping metering.
  */
-async function configureClient(env: Env): Promise<void> {
+async function buildModel(env: Env, modelId: string): Promise<OpenAIChatCompletionsModel> {
   const token = await getAiGatewayToken(env);
   if (!token) {
     throw new Error(
@@ -99,11 +105,13 @@ async function configureClient(env: Env): Promise<void> {
     fetch: ((input: RequestInfo | URL, init?: RequestInit) =>
       env.GUARDIAN_HTTP.fetch(new Request(String(input), init as RequestInit))) as typeof fetch,
   });
-  setDefaultOpenAIClient(client);
-  // Guardian speaks chat-completions, not the Responses API the SDK defaults to.
-  setOpenAIAPI("chat_completions");
-  // A Worker has nowhere to send traces, and the attempt costs a failed subrequest.
+  // A Worker has nowhere to send traces, and the attempt costs a failed
+  // subrequest. This one IS global, and safely so: it is the same value for every
+  // request and carries no per-request state.
   setTracingDisabled(true);
+  // Guardian speaks chat-completions, not the Responses API the SDK defaults to;
+  // naming the class picks that wire format without a global mode switch.
+  return new OpenAIChatCompletionsModel(client, modelId);
 }
 
 /** What one tool call did, recorded as it happens. */
@@ -221,18 +229,18 @@ export async function runFolderTurn(
   env: Env,
   input: { folderId: string | null; message: string; history?: AgentMessage[]; model?: string },
 ): Promise<FolderAgentTurn> {
-  await configureClient(env);
+  const model = input.model ?? "auto";
+  const chatModel = await buildModel(env, model);
 
   const toolCalls: ToolCallRecord[] = [];
   const tools = AGENT_TOOL_NAMES.map((n) => asAgentTool(env, n, toolCalls)).filter(
     (t): t is NonNullable<ReturnType<typeof asAgentTool>> => t !== null,
   );
 
-  const model = input.model ?? "auto";
   const agent = new Agent({
     name: "Folder agent",
     instructions: await buildInstructions(env, input.folderId),
-    model,
+    model: chatModel,
     tools,
   });
 

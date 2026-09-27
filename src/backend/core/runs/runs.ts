@@ -117,7 +117,11 @@ export async function createModelRun(
       runId: run.id,
       requestedModel: id,
       promptSent: entry ? buildPromptFor(entry, intent) : prompt,
-      maskSent: Boolean(mask) && entry !== null && sendsMaskInBand(entry),
+      // A mask only travels if it has actually been rasterised: a semantic mask
+      // sits `proposed` with no cfImageId until it is. Claiming "mask in-band"
+      // for one that was never sent makes the comparison read as mask-vs-mask
+      // when it was prompt-vs-prompt.
+      maskSent: Boolean(mask?.cfImageId) && entry !== null && sendsMaskInBand(entry),
       ...(entry ? {} : { status: "failed" as const, errorCode: "not_found", errorMessage: `Model ${id} is not in the registry.`, completedAt: new Date() }),
     };
   });
@@ -163,7 +167,12 @@ export async function executeModelRun(
 ): Promise<ModelRunWithResults> {
   const { run, results } = await getModelRun(ctx, input.runId);
   const surface = input.surface ?? "api";
-  const pending = results.filter((r) => r.status === "queued");
+  // `running` is included deliberately: an isolate evicted mid-fan-out leaves
+  // rows in that state, and picking up only `queued` would strand the run as
+  // permanently in-flight with no way to retry. Re-running a row that is
+  // genuinely still live costs one duplicate provider call and the last write
+  // wins; stranding it costs the whole comparison.
+  const pending = results.filter((r) => r.status === "queued" || r.status === "running");
   if (pending.length === 0) return { run, results, status: deriveStatus(results) };
 
   const editing = Boolean(run.inputImageId);
