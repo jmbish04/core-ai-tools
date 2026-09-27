@@ -57,8 +57,12 @@ const HERO_MOTION = `
 
 // Each crop holds the robot clear of the nav, and the band ends in a dissolve
 // of the page's own ground rather than a fade.
-export function HeroBand({ slides = HERO_SLIDES }: { slides?: HeroSlide[] }) {
-  const [resting, ...crossing] = slides.length > 0 ? slides : HERO_SLIDES
+export function HeroBand({ slides = [] }: { slides?: HeroSlide[] }) {
+  // No pictures of the user's own → NO band. The block shipped stock photography
+  // as the fallback, which put someone else's robots across the top of every
+  // page and implied content that is not there.
+  if (slides.length === 0) return null
+  const [resting, ...crossing] = slides
 
   return (
     <div

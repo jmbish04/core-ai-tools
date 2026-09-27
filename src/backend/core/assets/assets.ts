@@ -305,13 +305,29 @@ export async function requireAsset(
   ctx: CoreContext,
   assetId: string,
   opts?: { includeArchived?: boolean },
-): Promise<Asset> {
+): Promise<AssetWithImage> {
   const where = opts?.includeArchived
     ? eq(assets.id, assetId)
     : and(eq(assets.id, assetId), isNull(assets.archivedAt));
-  const [row] = await ctx.db.select().from(assets).where(where).limit(1);
+  // Joined for the same reason `listAssets` joins: an asset without its picture
+  // is unusable in every surface that reads one. Returning the bare row here
+  // while the list returned the joined shape made `/api/assets/:id` and
+  // `/api/assets` two different contracts — and the asset page, which reads
+  // `asset.image.id`, crashed on the one that lacked it.
+  const [row] = await ctx.db
+    .select({
+      asset: assets,
+      imageId: libraryImages.id,
+      publicId: libraryImages.publicId,
+      deliveryUrl: libraryImages.deliveryUrl,
+      imageTitle: libraryImages.title,
+    })
+    .from(assets)
+    .innerJoin(libraryImages, eq(assets.libraryImageId, libraryImages.id))
+    .where(where)
+    .limit(1);
   if (!row) throw new NotFoundError(`Asset ${assetId} not found.`);
-  return row;
+  return withImage(row);
 }
 
 /** Name an asset from the caller's value, else the image's title, else filename. */

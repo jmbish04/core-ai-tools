@@ -64,6 +64,8 @@ export function AppShell({
   title = "Workspace",
   children,
 }: AppShellProps) {
+  const hasHero = (hero?.length ?? 0) > 0;
+
   // The rail and pill are anchors, so the current section comes from the route.
   // These remain only for the mobile drawer, which closes on selection.
   const [railSection, setRailSection] = useState(section)
@@ -73,6 +75,7 @@ export function AppShell({
     <TooltipProvider>
       <SidebarProvider className="bg-muted text-foreground relative overflow-clip">
         <HeroBand slides={hero} />
+
         <h1 className="sr-only">{title}</h1>
 
         <div className="relative flex w-full gap-3 p-3">
@@ -101,9 +104,16 @@ export function AppShell({
               />
             </div>
 
-            {/* Each margin is the matching hero-band.tsx height minus 184, which
-                lands the page body on the dissolve. */}
-            <main className="mt-[196px] min-w-0 sm:mt-[236px] lg:mt-[260px]">
+            {/* With a band, each margin is its hero-band.tsx height minus 184, so
+                the body lands on the dissolve. With no band there is nothing to
+                clear, and that clearance would just be a hole at the top. */}
+            <main
+              className={
+                hasHero
+                  ? "mt-[196px] min-w-0 sm:mt-[236px] lg:mt-[260px]"
+                  : "mt-3 min-w-0"
+              }
+            >
               {children}
             </main>
           </div>

@@ -11,6 +11,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  requireAsset,
   archiveAsset,
   assetIdsForImage,
   createAsset,
@@ -372,5 +373,26 @@ describe("asset lineage", () => {
       promptText: "warmer light",
     });
     expect(await assetIdsForImage(c, edit.outputImageId)).toEqual([]);
+  });
+});
+
+describe("asset reads carry the picture — both of them", () => {
+  it("returns the backing image from the single read as well as the list", async () => {
+    // The bug this plants a guard against: `listAssets` was joined but
+    // `requireAsset` was not, so /api/assets and /api/assets/:id were two
+    // different shapes. The asset page reads `asset.image.id` and crashed to a
+    // blank screen on the one that lacked it — and the whole suite still passed,
+    // because nothing asserted the single-read contract.
+    const c = ctx();
+    const img = await seedImage(c);
+    const created = await createAsset(c, { libraryImageId: img.id, name: "Kettle" });
+
+    const one = await requireAsset(c, created.id);
+    expect(one.image, "single read must carry its image").toBeDefined();
+    expect(one.image.id).toBe(img.id);
+    expect(one.image.deliveryUrl).toBe(img.deliveryUrl);
+
+    const [listed] = await listAssets(c);
+    expect(Object.keys(one.image).sort()).toEqual(Object.keys(listed.image).sort());
   });
 });
