@@ -8,7 +8,7 @@
 
 import { and, desc, eq, inArray } from "drizzle-orm";
 
-import { modelRunResults, modelRuns } from "@/backend/db/schema";
+import { libraryImages, modelRunResults, modelRuns } from "@/backend/db/schema";
 import type { ModelRunResult } from "@/backend/db/schema";
 import type { CoreContext } from "../context";
 import { NotFoundError } from "../errors";
@@ -38,10 +38,41 @@ export function deriveStatus(results: ModelRunResult[]): ModelRunWithResults["st
  * @returns The run, its results, and the derived status.
  * @throws NotFoundError when the run does not exist.
  */
+
+/**
+ * Attach each result's output image URL.
+ *
+ * A comparison is a picture of N outputs side by side, so a result row carrying
+ * only an image ID sends every surface off to resolve it — and they would each
+ * resolve it differently. One join here, and REST, MCP and the UI all agree.
+ *
+ * @param rows Result rows, some of which may have no output (a failed model).
+ * @returns The same rows, each with `deliveryUrl` where an output exists.
+ */
+async function withOutputUrls<T extends { outputImageId: string | null }>(
+  ctx: CoreContext,
+  rows: T[],
+): Promise<(T & { deliveryUrl: string | null })[]> {
+  const ids = [...new Set(rows.map((r) => r.outputImageId).filter((id): id is string => !!id))];
+  if (ids.length === 0) return rows.map((r) => ({ ...r, deliveryUrl: null }));
+  const images = await ctx.db
+    .select({ id: libraryImages.id, deliveryUrl: libraryImages.deliveryUrl })
+    .from(libraryImages)
+    .where(inArray(libraryImages.id, ids));
+  const byId = new Map(images.map((i) => [i.id, i.deliveryUrl]));
+  return rows.map((r) => ({
+    ...r,
+    deliveryUrl: r.outputImageId ? (byId.get(r.outputImageId) ?? null) : null,
+  }));
+}
+
 export async function getModelRun(ctx: CoreContext, runId: string): Promise<ModelRunWithResults> {
   const [run] = await ctx.db.select().from(modelRuns).where(eq(modelRuns.id, runId)).limit(1);
   if (!run) throw new NotFoundError(`Model run ${runId} not found.`);
-  const rows = await ctx.db.select().from(modelRunResults).where(eq(modelRunResults.runId, runId));
+  const rows = await withOutputUrls(
+    ctx,
+    await ctx.db.select().from(modelRunResults).where(eq(modelRunResults.runId, runId)),
+  );
   const order = new Map((run.requestedModels ?? []).map((m, idx) => [m, idx]));
   const results = rows.sort(
     (a, b) => (order.get(a.requestedModel) ?? 99) - (order.get(b.requestedModel) ?? 99),
@@ -75,12 +106,16 @@ export async function listModelRuns(
     .limit(limit);
   if (runs.length === 0) return [];
 
-  // One query for every run's results, not one per run.
-  const rows = await ctx.db
-    .select()
-    .from(modelRunResults)
-    .where(inArray(modelRunResults.runId, runs.map((r) => r.id)));
-  const byRun = new Map<string, ModelRunResult[]>();
+  // One query for every run's results, not one per run — and one more for their
+  // output URLs, so a list of runs renders thumbnails without N fetches.
+  const rows = await withOutputUrls(
+    ctx,
+    await ctx.db
+      .select()
+      .from(modelRunResults)
+      .where(inArray(modelRunResults.runId, runs.map((r) => r.id))),
+  );
+  const byRun = new Map<string, (ModelRunResult & { deliveryUrl: string | null })[]>();
   for (const row of rows) {
     const list = byRun.get(row.runId) ?? [];
     list.push(row);

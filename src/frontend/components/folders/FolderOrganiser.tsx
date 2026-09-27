@@ -25,6 +25,7 @@ import { FolderSettingsCard } from "./FolderSettingsCard";
 import { FolderContents } from "./FolderContents";
 import { FolderTree } from "./FolderTree";
 import { FolderAgentPanel } from "./FolderAgentPanel";
+import { ProjectHero } from "./ProjectHero";
 
 /** Read the folder id out of the URL so a reload lands on the same folder. */
 function folderFromLocation(): string | null {
@@ -165,6 +166,14 @@ export function FolderOrganiser() {
       />
 
       <div className="min-w-0 space-y-4">
+        {selectedFolder ? (
+          <ProjectHero
+            folder={selectedFolder}
+            folders={folders ?? []}
+            settings={settings}
+            images={images}
+          />
+        ) : null}
         <FolderContents
           folder={selectedFolder}
           images={images}
