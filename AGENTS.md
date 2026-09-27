@@ -212,12 +212,14 @@ and landing page are reshaped, and only in Phase 10.
   viewer, mask brush), so this must be fixed before Phase 9** (likely `client:only="react"`
   on `useAgent` islands, or guarding the hook off SSR). Do NOT chase it before then; it is
   filed, not open.
-  - **MAY NOT APPLY TO US.** The crash is specific to the Agents SDK `useAgent` hook. Our
-    `SessionDO` is a PLAIN Durable Object and §5 calls for a hand-rolled reconnecting
-    WebSocket client, not the SDK's React hooks. If we never call `useAgent`/`useAgentChat`
-    in our own islands, we never hit this. Re-evaluate at Phase 9: if our WS client is
-    hand-rolled as specified, this gate is likely moot — do not re-litigate, just confirm we
-    don't import `useAgent`.
+  - **CLOSED 2026-09-27.** The rule is: an island that touches `useAgent`/`useAgentChat`
+    mounts `client:only="react"`, everything else may `client:load`. Audited and true —
+    only `AgentChat` and `assistant/runtime.tsx` import the hooks, and their four mount
+    points (`/chat`, `/assistant`, the landing `AssistantModal`, the session
+    `AssistantModal`) are all `client:only`. Our own realtime clients (`FolderOrganiser`,
+    `SessionDO`) are hand-rolled reconnecting WebSockets, as specified, so they SSR fine.
+    Verified in a browser: zero page errors on all 13 routes. `/notifications` does not
+    exist in this product; `NotificationsFeed` is unmounted template code.
 
 ## Wave 1 schema (W1.4–W1.6) — migration `0015_condemned_magma.sql` (local only so far)
 
@@ -258,7 +260,13 @@ and landing page are reshaped, and only in Phase 10.
   `revisions.input_image_id = parent.output_image_id ?? parent.input_image_id`,
   that covers forks (the fork's input IS the forked-from node's output) and retries
   (same parent → same input) with no tree-shape awareness. Do not replace it with a
-  tree walk. Functions: `propagateLineage`, `assetIdsForImage`, `recordLineage`
+  tree walk. **`placeAssetInFolder` is the inverse of promotion**: it copies the asset's
+  backing image row INTO a folder (same Cloudflare Images object, new row, fresh
+  `public_id`) and gives the copy the asset's lineage. The asset itself does not move —
+  otherwise the asset page would follow the image around the tree and two projects could
+  not work from one asset at once. `POST /api/assets/{id}/place`, MCP
+  `place_asset_in_folder`.
+  Functions: `propagateLineage`, `assetIdsForImage`, `recordLineage`
   (idempotent via `uniq_asset_lineage`), `listAssetIterations` (oldest-first, carries
   `folderId`/`sessionUuid` so the SURFACE groups — core returns flat rows).
 - **Not yet exposed**: no REST route and no MCP tool touches any of this. See the
@@ -385,19 +393,23 @@ command exists — the named gateway must be created via dashboard/API before th
 Interactions proxy test can run. Test still owed (provider route / universal `/ai/run` / direct
 control, real req+resp).
 
-## Frontend (this run — nav reorchestrated, product pages added)
+## Frontend, first pass (SUPERSEDED — see "Frontend shape")
 
-Nav rebuilt from `siteConfig` to the product: Home/Library/Sessions/Chat + Editor/Developer/
-System groups (`/openapi.json` `/scalar` `/swagger` kept). New pages (thin Astro shell + a
-`client:load` island using `apiGet`, empty/loading/error states): `/` (reshaped landing),
-`/mcp-setup`, `/sessions` + `/sessions/[uuid]` (tree with grouped attempts), `/library`,
-`/models` (capability matrix), `/prompts`. Chat kept via `ChatBroker` (`/chat` + landing
-AssistantModal). **DATA/PRESENTATION SPLIT is loose here** — Claude Design restyle should
-replace presentation; if it needs rewiring, tighten the hook/loader split first. Still owed
-(Part 2): a `/docs` onboarding page (MCP connect steps + tool catalog generated from the
-registry + session/revision model), a library "sessions spawned from this image" panel, the
-mask brush, prompt create/use, model per-task-default editing. Template showcase pages remain
-on disk but are unlinked (their DO agents were removed — see below).
+This described a `siteConfig`-driven navbar and a set of pages on `BaseLayout`. Both are
+gone: `siteConfig`, `BaseLayout` and the whole Header/MainNav/MobileNav/Footer chrome were
+deleted once every route moved to `ShellLayout`, and `/mcp-setup` is now `/connect` (nothing
+but the protocol may live under `/mcp` — the OAuth provider's `apiRoute` is a prefix match).
+The pages themselves survive: `/` (landing), `/sessions` + `/sessions/[uuid]` (tree with
+grouped attempts), `/library`, `/models` (capability matrix), `/prompts`, `/docs`, and chat
+via `ChatBroker` (`/chat`, `/assistant`, and the landing `AssistantModal`).
+
+**The DATA/PRESENTATION SPLIT is still loose in those islands** — each one fetches in the
+component. That was left alone deliberately; tighten the hook/loader split before any
+restyle that needs rewiring. Still owed: a library "sessions spawned from this image" panel,
+the mask brush, prompt create/use, and model per-task-default editing from the UI.
+
+Template showcase pages remain on disk but are unlinked (their DO agents were removed — see
+below), and `/docs` no longer advertises them.
 
 ## DO trim (v2)
 
@@ -627,10 +639,11 @@ parse → validate → call core → serialize. No business logic outside core.
   2026-09-26 against production: named surface 16,185 bytes ≈ **4,046 tokens** per
   session; code mode 1,460 bytes ≈ **365 tokens**. Every tool definition is re-sent on
   every request of every session, so this is a per-turn saving. Rules: `~/AGENTS-mcp.md`.
-- **All 30 named tools stay dispatchable.** `tools/call` accepts any name (a client
-  with a cached list keeps working), and `GET/POST /mcp?mode=named` restores the full
-  advertised surface. Keep descriptions LEAN — a fat `execute` description re-spends
-  what code mode saved.
+- **Every named tool stays dispatchable** (40 of them as of `place_asset_in_folder`).
+  `tools/call` accepts any name (a client with a cached list keeps working), and
+  `GET/POST /mcp?mode=named` restores the full advertised surface. Keep descriptions
+  LEAN — a fat `execute` description re-spends what code mode saved. A new capability is
+  a new NAMED tool, never a fourth advertised one; three suites assert the count.
 - **`execute` runs the snippet in a real isolate** (`WORKER_LOADERS`), NOT in this
   worker. The isolate gets no bindings and `globalOutbound: null`, so its ONLY channel
   is `env.PARENT` → the **`SELF` service binding** → `POST /internal/mcp-tool`, gated by
@@ -775,15 +788,91 @@ claim a native channel while its own notes said otherwise — do not "fix" it ba
   re-check before debugging the route.
 - **TypeScript 7 removed `baseUrl`.** `tsc --noEmit` was failing at the CONFIG level, so
   it was not a gate at all. Paths are now relative; keep them that way.
+- **In a sandbox with no `CLOUDFLARE_API_TOKEN`, `wrangler dev` still tries to open a
+  remote proxy session** and dies, because `ai`, `images`, `browser` and every
+  `remote: true` binding have no local emulation. Run against the BUILT worker
+  (`dist/server/wrangler.json`) with those stripped and `remote` forced false. `wrangler
+  dev` on `src/_worker.ts` cannot resolve Astro's virtual modules at all — build first.
+  Secrets Store has a local mode: `wrangler secrets-store secret create <store> --name X
+  --scopes workers` WITHOUT `--remote`, into the same `--persist-to` the dev server uses.
+- **Two `workerd` processes on one port fail silently as a hang**, not as a bind error:
+  the second process binds, accepts connections and never answers. If every request times
+  out while the log says "Ready on", kill every `workerd` before blaming the Worker.
 
 ## Frontend shape
 
-`ShellLayout` (ReUI `app-shell-22`, dark-first) wraps every product route. Screens:
-`/folders` (tree + contents + settings + docked agent + project hero), `/assets` and
-`/assets/[id]` (asset hero + per-folder evolution timelines), `/compare`, `/projects/new`,
-`/connect`.
+`ShellLayout` (ReUI `app-shell-22`, dark-first) wraps **every** route. `BaseLayout`,
+`Header`, `MainNav`, `MobileNav`, `Footer` and `lib/config.ts` are **deleted** — there is
+one chrome, and adding a second is the thing that was just undone.
+
+- **`lib/nav.ts` is the only place a route's chrome is declared.** `shellNavFor(pathname)`
+  returns `{ section, subnav, subnavCurrent }` and every page spreads it. A page must not
+  hand-roll `section=`/`subnav=`: three copies of the same three links is what this
+  replaced. A `section` MUST match a rail record id in the app shell's own `data.tsx`
+  (`home` is the one exception — it matches nothing on purpose, because the landing page is
+  reached through the brand mark). `test/shell-nav.test.ts` enforces all of that, reading
+  the rail ids OUT OF `data.tsx` at vitest-config time as a binding rather than
+  transcribing them, so it cannot agree with a stale copy of itself.
+- **`lib/theme.ts#initialTheme` is the one theme rule: dark unless this browser explicitly
+  stored `"light"`.** The OS preference is NEVER consulted, and storage is written only
+  from the toggle's click handler. Both halves matter: `ThemeToggle` used to seed from
+  `prefers-color-scheme` and persist it in a mount effect, so on any light-preferring
+  machine the whole dark-first app flipped one tick after load and stayed flipped. The
+  inline boot script in `ShellLayout` is a copy of the same rule (it runs before first
+  paint, so it cannot import) — change them together.
+- **`lib/endpoints.ts` holds the API paths a screen cannot work without**, and
+  `test/frontend-endpoints.test.ts` asserts the routers answer those exact strings. It
+  exists because `FolderOrganiser` fetched `/api/library` (the route is
+  `/api/library/images`) inside a `Promise.allSettled` that substituted `[]` on failure, so
+  every folder in the workspace read "0 images" with no error. A read that fails is not an
+  empty folder — surface it.
+- **Read query params on the SERVER and pass them in.** `FolderOrganiser` took its initial
+  folder from `window.location`, which is null during SSR, so every `?folder=` link
+  hydrated with a mismatch and React discarded the island's whole server render. The page
+  still worked, which is why it lasted: the only symptom was a minified #418.
+- **The wizard's copilot proposes, it does not act.** The project folder does not exist
+  while the wizard is open, so `POST /api/agent/turn` with `mode: "onboarding"` gets NO
+  tools and returns a settings proposal parsed out of a fenced block
+  (`ai/agent/onboarding-copilot.ts`). Deliberately not a new MCP tool: a "propose" tool
+  that writes nothing would be a second way to set folder settings in the surface every
+  client sees.
+- **The agent turn streams.** `POST /api/agent/turn/stream` (SSE) shares `prepareTurn` with
+  the buffered route so the two cannot drift. Tool frames come from the tool wrapper, never
+  from the SDK's item stream — the item stream says a tool was *called*, and a trace built
+  from it marks every call successful. `lib/sse.ts#postSse` buffers across chunk
+  boundaries; a per-chunk parser silently drops split frames.
+- **Screens:** `/` (landing), `/folders` (tree + contents + settings + docked agent +
+  project hero), `/library`, `/assets` and `/assets/[id]`, `/sessions` and
+  `/sessions/[uuid]`, `/compare`, `/projects/new`, `/models`, `/prompts`, `/docs`,
+  `/connect`, `/chat` and `/assistant`, `/settings/*`.
+- **A page adds no header when its island already renders one** (`/library`, `/sessions`,
+  `/models`, `/prompts` do). Same rule as the folder hero owning the folder name while the
+  contents header says only "Images · n".
+- **Responsive floor is 375px**, checked in a real browser at 375/768/1280/1920 — no
+  horizontal document overflow on any screen. The recurring breakages were: a fixed-width
+  search beside a button on a non-wrapping row, chip groups that only wrapped at the outer
+  level, fixed multi-column grids (make them `overflow-x-auto` with a `min-w-`), and
+  `100svh` panels that are only a viewport column at `xl`.
 
 Evolution history is derived from `revLabel`'s dotted notation, keyed by **session AND
 label** (labels are minted per session, so `rev1` in two sessions is two nodes), with
 missing intermediates INFERRED rather than collapsed — cousins promoted to siblings is the
 flattening bug that derivation exists to avoid.
+
+## Gates, and the four dependencies that were never declared
+
+`vitest`, `@cloudflare/vitest-pool-workers`, `@google/genai` and
+`@cloudflare/workers-oauth-provider` were imported by shipped source but absent from
+`package.json` and the lockfile, so `vitest` could not start on a clean install and "168
+tests" only reproduced on a machine that happened to have them. They are declared now, with
+`pnpm test` / `pnpm typecheck` scripts. `test/**` is inside `tsconfig#include` — it was not,
+so the suite had never been typechecked.
+
+Do NOT augment `Cloudflare.Env` to add a test-only binding: a required property there fails
+every `Env` in the Worker (measured: 11 tsc errors became 42). `test/env.d.ts` exports a
+`TestEnv` type and the setup file narrows locally.
+
+`pnpm run build` does not typecheck, so passing a build proves nothing about types. Both
+gates are separate: `npx tsc --noEmit -p .` (10 known pre-existing errors — WorkflowsAgent,
+AssistantModal, MindMap, drive-explorer, reui/data-grid, JsonPayloadEditor) and
+`npx vitest run` (200 green).
