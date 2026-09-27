@@ -23,5 +23,10 @@
       "@/backend/db/schema": ["./src/backend/db/schema"]
     }
   },
-  "include": [".astro/types.d.ts", "src/**/*", "worker-configuration.d.ts"]
+  "include": [
+    ".astro/types.d.ts",
+    "src/**/*",
+    "test/**/*",
+    "worker-configuration.d.ts"
+  ]
 }
