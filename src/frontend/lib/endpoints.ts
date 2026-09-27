@@ -31,5 +31,8 @@ export const folderSettingsPath = (folderId: string): string =>
 /** Place a copy of an asset's image into a folder. */
 export const assetPlacePath = (assetId: string): string => `${ASSETS_PATH}/${assetId}/place`;
 
-/** One turn of the folder agent conversation. */
+/** One turn of the folder agent conversation, buffered. */
 export const AGENT_TURN_PATH = "agent/turn";
+
+/** The same turn as Server-Sent Events: reply deltas and tool results as they land. */
+export const AGENT_TURN_STREAM_PATH = "agent/turn/stream";

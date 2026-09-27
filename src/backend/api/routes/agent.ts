@@ -4,16 +4,21 @@
  * Thin, like every route here: parse → core → serialize. The agent itself lives
  * in `ai/agent/folder-agent.ts`; this exists so the browser can reach it.
  *
- * Not streamed yet. A turn that calls tools takes seconds, and the folder's
- * WebSocket already shows the work landing as it happens — the tree updates
- * while the reply is still being written — so the reply arriving whole is a
- * smaller gap than it looks. Streaming is a later pass, not a missing piece of
- * this one.
+ * Two surfaces over the same turn. `/turn` buffers and answers with JSON;
+ * `/turn/stream` answers with SSE, emitting the reply as it is written and each
+ * tool as it finishes. Both go through `prepareTurn` in the agent module, so the
+ * streamed turn cannot quietly become a different agent with different tools.
+ *
+ * `/turn` is kept rather than replaced: it is what an MCP client or a script
+ * wants, and it is the fallback the UI uses when the stream cannot be opened.
+ * Only `/turn` is registered with zod-openapi — an SSE response has no JSON
+ * schema to declare, and `createRoute`'s return-type contract fights a streamed
+ * body.
  */
 
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 
-import { runFolderTurn } from "@/backend/ai/agent/folder-agent";
+import { runFolderTurn, streamFolderTurn } from "@/backend/ai/agent/folder-agent";
 
 export const agentRouter = new OpenAPIHono<{ Bindings: Env }>();
 
@@ -85,3 +90,76 @@ agentRouter.openapi(
     return c.json(turn);
   },
 );
+
+/**
+ * The same turn, streamed as Server-Sent Events.
+ *
+ * Each `data:` line is one `FolderTurnFrame` as JSON. The stream always ends
+ * with exactly one `done` or one `error` frame — a client that sees the socket
+ * close without either should treat it as a failure, not as an empty reply.
+ *
+ * Not `c.body(stream)` from a generator directly: the turn must keep running if
+ * the client goes away mid-write, otherwise a user closing the tab abandons an
+ * agent halfway through renaming their folders. The writer swallows a write
+ * failure and lets the generator finish.
+ */
+agentRouter.post("/api/agent/turn/stream", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  if (typeof body.message !== "string" || body.message.trim().length === 0) {
+    return c.json({ error: "A message is required.", code: "validation" }, 400);
+  }
+
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+
+  const pump = async () => {
+    let open = true;
+    const send = async (frame: unknown) => {
+      if (!open) return;
+      try {
+        await writer.write(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`));
+      } catch {
+        // The client hung up. Keep consuming the turn so the agent's tool calls
+        // finish, but stop trying to write.
+        open = false;
+      }
+    };
+    try {
+      for await (const frame of streamFolderTurn(c.env, {
+        folderId: (body.folderId as string | null) ?? null,
+        message: body.message as string,
+        history: body.history as never,
+        model: body.model as string | undefined,
+        mode: body.mode as never,
+        draft: body.draft as never,
+      })) {
+        await send(frame);
+      }
+    } catch (err) {
+      await send({
+        type: "error",
+        message: err instanceof Error ? err.message : "The agent could not be reached.",
+      });
+    } finally {
+      try {
+        await writer.close();
+      } catch {
+        /* already closed by the client */
+      }
+    }
+  };
+
+  c.executionCtx.waitUntil(pump());
+
+  return new Response(readable, {
+    headers: {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+      // Miniflare and some proxies buffer without this, which turns a stream
+      // back into one big response at the end — the exact thing being fixed.
+      "x-accel-buffering": "no",
+    },
+  });
+});

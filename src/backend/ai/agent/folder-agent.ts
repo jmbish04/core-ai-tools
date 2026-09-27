@@ -233,56 +233,173 @@ async function buildInstructions(env: Env, folderId: string | null): Promise<str
  * @throws Error when guardian cannot be reached or the gateway token is missing.
  * @example await runFolderTurn(env, { folderId, message: "tidy these into sub-folders by room" })
  */
-export async function runFolderTurn(
-  env: Env,
-  input: {
-    folderId: string | null;
-    message: string;
-    history?: AgentMessage[];
-    model?: string;
-    /**
-     * `onboarding` is the wizard's copilot: the project folder does not exist
-     * yet, so the copilot PROPOSES settings in its reply instead of calling
-     * `set_folder_settings`, and the wizard writes them on finish. It gets no
-     * tools for the same reason — there is nothing for it to edit.
-     */
-    mode?: "folder" | "onboarding";
-    /** The wizard's draft so far. Only read in `onboarding` mode. */
-    draft?: OnboardingDraftContext;
-  },
-): Promise<FolderAgentTurn> {
-  const model = input.model ?? "auto";
-  const chatModel = await buildModel(env, model);
-  const onboarding = input.mode === "onboarding";
+/** What one turn is asked to do. Shared by the buffered and streamed paths. */
+export interface FolderTurnInput {
+  folderId: string | null;
+  message: string;
+  history?: AgentMessage[];
+  model?: string;
+  /**
+   * `onboarding` is the wizard's copilot: the project folder does not exist
+   * yet, so the copilot PROPOSES settings in its reply instead of calling
+   * `set_folder_settings`, and the wizard writes them on finish. It gets no
+   * tools for the same reason — there is nothing for it to edit.
+   */
+  mode?: "folder" | "onboarding";
+  /** The wizard's draft so far. Only read in `onboarding` mode. */
+  draft?: OnboardingDraftContext;
+}
 
+/**
+ * Everything a turn needs, built once. Both `runFolderTurn` and
+ * `streamFolderTurn` go through here so the two paths cannot drift into
+ * different agents, different tool sets or different turn limits — the kind of
+ * difference that shows up as "it behaves differently when it streams".
+ */
+async function prepareTurn(env: Env, input: FolderTurnInput) {
+  const model = input.model ?? "auto";
+  const onboarding = input.mode === "onboarding";
   const toolCalls: ToolCallRecord[] = [];
-  const tools = onboarding
-    ? []
-    : AGENT_TOOL_NAMES.map((n) => asAgentTool(env, n, toolCalls)).filter(
-        (t): t is NonNullable<ReturnType<typeof asAgentTool>> => t !== null,
-      );
 
   const agent = new Agent({
     name: onboarding ? "Onboarding copilot" : "Folder agent",
     instructions: onboarding
       ? buildOnboardingInstructions(input.draft ?? {})
       : await buildInstructions(env, input.folderId),
-    model: chatModel,
-    tools,
+    model: await buildModel(env, model),
+    tools: onboarding
+      ? []
+      : AGENT_TOOL_NAMES.map((n) => asAgentTool(env, n, toolCalls)).filter(
+          (t): t is NonNullable<ReturnType<typeof asAgentTool>> => t !== null,
+        ),
   });
 
-  // The SDK takes either a string or a message list; history keeps the thread.
-  const conversation = [
-    ...(input.history ?? []).map((m) => ({ role: m.role, content: m.content })),
-    { role: "user" as const, content: input.message },
-  ];
+  return {
+    agent,
+    model,
+    onboarding,
+    toolCalls,
+    // The SDK takes either a string or a message list; history keeps the thread.
+    conversation: [
+      ...(input.history ?? []).map((m) => ({ role: m.role, content: m.content })),
+      { role: "user" as const, content: input.message },
+    ],
+    // One turn is enough with no tools; the folder agent needs room to chain them.
+    maxTurns: onboarding ? 2 : 8,
+  };
+}
 
-  // One turn is enough with no tools; the folder agent needs room to chain them.
-  const result = await run(agent, conversation as never, { maxTurns: onboarding ? 2 : 8 });
-  const raw = result.finalOutput ?? "";
-
+/** Shape the final result the same way for both paths. */
+function finishTurn(
+  raw: string,
+  toolCalls: ToolCallRecord[],
+  model: string,
+  onboarding: boolean,
+): FolderAgentTurn {
   if (!onboarding) return { reply: raw, toolCalls, model };
-
   const { reply, proposal } = parseCopilotReply(raw);
   return { reply, toolCalls, model, proposal };
+}
+
+export async function runFolderTurn(env: Env, input: FolderTurnInput): Promise<FolderAgentTurn> {
+  const { agent, conversation, maxTurns, model, onboarding, toolCalls } = await prepareTurn(
+    env,
+    input,
+  );
+  const result = await run(agent, conversation as never, { maxTurns });
+  return finishTurn(result.finalOutput ?? "", toolCalls, model, onboarding);
+}
+
+/** One frame of a streamed turn. Serialised as SSE `data:` lines by the route. */
+export type FolderTurnFrame =
+  /** A piece of the reply as the model writes it. */
+  | { type: "delta"; text: string }
+  /** A tool finished. Emitted when it ran, not at the end. */
+  | { type: "tool"; name: string; ok: boolean; error?: string }
+  /** The turn is over. Carries the whole reply, so a client can ignore deltas. */
+  | { type: "done"; turn: FolderAgentTurn }
+  /** The turn failed. The message is the one the user should see. */
+  | { type: "error"; message: string };
+
+/**
+ * Run one turn, yielding frames as they happen.
+ *
+ * Streaming is the difference between watching the agent think and staring at a
+ * spinner for eight seconds. The tool frames matter more than the text ones: a
+ * turn that renames four folders spends most of its time in tools, and until now
+ * the only sign of that was the folder WebSocket updating a tree the user might
+ * not be looking at.
+ *
+ * The onboarding copilot's settings block is NOT streamed as text — the block is
+ * machine-readable and half of it on screen is noise. Its deltas are emitted, and
+ * the `done` frame carries the reply with the block already parsed out, so a
+ * client renders the final text over the streamed one.
+ *
+ * @param env   Worker env (needs GUARDIAN_HTTP + AI_GATEWAY_TOKEN).
+ * @param input The same input `runFolderTurn` takes.
+ * @yields Frames in order, ending with exactly one `done` or one `error`.
+ * @example for await (const f of streamFolderTurn(env, { folderId, message })) { … }
+ */
+export async function* streamFolderTurn(
+  env: Env,
+  input: FolderTurnInput,
+): AsyncGenerator<FolderTurnFrame> {
+  let toolCalls: ToolCallRecord[] = [];
+  let model = input.model ?? "auto";
+  let onboarding = input.mode === "onboarding";
+  let raw = "";
+
+  try {
+    const prepared = await prepareTurn(env, input);
+    ({ toolCalls, model, onboarding } = prepared);
+
+    const result = await run(prepared.agent, prepared.conversation as never, {
+      maxTurns: prepared.maxTurns,
+      stream: true,
+    });
+
+    // Tools record themselves into `toolCalls` from inside their own execute, so
+    // the stream reports whatever has appeared since the last frame rather than
+    // trying to reconstruct a result from the SDK's item events — which say a
+    // tool was CALLED, not whether it succeeded. A trace built from those marks
+    // every call successful, which is a flag structurally incapable of being
+    // false (see the `folder-agent` notes in AGENTS.md).
+    let reported = 0;
+    const drainTools = function* (): Generator<FolderTurnFrame> {
+      while (reported < toolCalls.length) {
+        const call = toolCalls[reported++];
+        yield { type: "tool", ...call };
+      }
+    };
+
+    for await (const event of result) {
+      if (
+        event.type === "raw_model_stream_event" &&
+        (event.data as { type?: string }).type === "output_text_delta"
+      ) {
+        const text = (event.data as { delta?: string }).delta ?? "";
+        if (text) {
+          raw += text;
+          yield { type: "delta", text };
+        }
+      }
+      yield* drainTools();
+    }
+
+    // The generator above only sees tools that finished before the last event.
+    await result.completed;
+    yield* drainTools();
+
+    // `finalOutput` is authoritative: the deltas can miss a final chunk, and for
+    // the copilot the parsed reply differs from the raw text anyway.
+    yield { type: "done", turn: finishTurn(result.finalOutput ?? raw, toolCalls, model, onboarding) };
+  } catch (err) {
+    // A failed turn must say so on the stream. Throwing here would close the
+    // response mid-flight and leave the client showing a half-written reply with
+    // no indication anything went wrong.
+    yield {
+      type: "error",
+      message: err instanceof Error ? err.message : "The agent could not be reached.",
+    };
+  }
 }

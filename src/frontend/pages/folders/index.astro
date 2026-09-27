@@ -11,6 +11,11 @@
 import ShellLayout from "@/layouts/ShellLayout.astro";
 import { FolderOrganiser } from "@/components/folders/FolderOrganiser";
 import { shellNavFor } from "@/lib/nav";
+
+// Read on the server so the island's first render matches the browser's. Taking
+// it from `window.location` inside the island instead meant every `?folder=`
+// link hydrated with a mismatch and React threw the server render away.
+const initialFolderId = Astro.url.searchParams.get("folder");
 ---
 
 <ShellLayout
@@ -19,6 +24,6 @@ import { shellNavFor } from "@/lib/nav";
   {...shellNavFor(Astro.url.pathname)}
 >
   <div class="mx-auto w-full max-w-[110rem] px-4 pb-16 sm:px-6">
-    <FolderOrganiser client:load />
+    <FolderOrganiser initialFolderId={initialFolderId} client:load />
   </div>
 </ShellLayout>
