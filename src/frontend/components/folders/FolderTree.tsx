@@ -7,19 +7,26 @@
  * Creating a folder happens here because this is where a user is looking at the
  * shape of the tree. It posts to the same REST route the agent's MCP tool calls,
  * so both paths produce the same event and the same live update.
+ *
+ * Archiving lives here for the same reason, and so does the archive itself: the
+ * tree is the only surface that shows what is NOT in it. `nodes` carries live
+ * folders only (the API hides archived ones), so this component fetches the
+ * archive on its own rather than growing a prop — the caller needs no change to
+ * gain an undo. Archiving a folder takes its whole subtree with it, which the
+ * confirm copy says out loud.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { hotkeysCoreFeature, syncDataLoaderFeature } from "@headless-tree/core";
 import { useTree } from "@headless-tree/react";
-import { FolderIcon, FolderOpenIcon, PlusIcon } from "lucide-react";
+import { ArchiveIcon, ArchiveRestoreIcon, FolderIcon, FolderOpenIcon, PlusIcon } from "lucide-react";
 
 import { Tree, TreeItem, TreeItemLabel } from "@/components/reui/tree";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { apiSend } from "@/lib/api";
-import type { FolderNode } from "./types";
+import { apiGet, apiSend } from "@/lib/api";
+import type { FolderNode, FolderRow } from "./types";
 
 /** Synthetic root: @headless-tree wants a single root id to hang the tree from. */
 const ROOT = "__root__";
@@ -62,6 +69,43 @@ export function FolderTree({
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [archived, setArchived] = useState<FolderRow[] | null>(null);
+  const [showArchive, setShowArchive] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+
+  /** The archive is a separate listing — the live tree deliberately excludes it. */
+  const loadArchive = useCallback(async () => {
+    const res = await apiGet<{ folders: FolderRow[] }>("library/folders", { archived: "only" });
+    setArchived(res.folders);
+  }, []);
+
+  // Keep the count honest: an archive done by the agent or another surface should
+  // show up here too, so re-read whenever the live tree changes.
+  useEffect(() => {
+    void loadArchive();
+  }, [loadArchive, nodes]);
+
+  /**
+   * Archive / restore. No confirm dialog (browser alerts are banned here, and the
+   * action is reversible from the Archived list right below), but a refusal MUST
+   * be visible: restoring into a still-archived parent is a 422 with a message
+   * that tells the user what to do, and swallowing it would look like a dead
+   * button.
+   */
+  const act = async (verb: "archive" | "restore", id: string) => {
+    setBusy(true);
+    setFailure(null);
+    try {
+      await apiSend("POST", `library/folders/${id}/${verb}`);
+      if (verb === "archive") setShowArchive(true);
+      onChanged();
+      await loadArchive();
+    } catch (err) {
+      setFailure(err instanceof Error ? err.message : `Could not ${verb} that folder.`);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const tree = useTree<TreeEntry>({
     rootItemId: ROOT,
@@ -152,18 +196,33 @@ export function FolderTree({
             if (id === ROOT) return null;
             const isSelected = id === selectedId;
             return (
-              <TreeItem key={id} item={item} className="cursor-pointer">
+              <TreeItem key={id} item={item} className="group cursor-pointer">
                 <TreeItemLabel
                   onClick={() => onSelect(id)}
                   className={isSelected ? "bg-accent text-accent-foreground" : undefined}
                 >
-                  <span className="flex items-center gap-2">
+                  <span className="flex w-full items-center gap-2">
                     {item.isExpanded() ? (
                       <FolderOpenIcon className="text-muted-foreground size-4" aria-hidden="true" />
                     ) : (
                       <FolderIcon className="text-muted-foreground size-4" aria-hidden="true" />
                     )}
-                    {item.getItemName()}
+                    <span className="truncate">{item.getItemName()}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={busy}
+                      title="Archive this folder and everything nested inside it"
+                      className="ms-auto size-6 shrink-0 p-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                      onClick={(e) => {
+                        // The label's click selects the folder; archiving must not.
+                        e.stopPropagation();
+                        void act("archive", id);
+                      }}
+                    >
+                      <ArchiveIcon className="size-3.5" aria-hidden="true" />
+                      <span className="sr-only">Archive {item.getItemName()}</span>
+                    </Button>
                   </span>
                 </TreeItemLabel>
               </TreeItem>
@@ -171,6 +230,49 @@ export function FolderTree({
           })}
         </Tree>
       )}
+
+      {failure ? (
+        <p role="alert" className="text-destructive mt-2 px-1 text-xs">
+          {failure}
+        </p>
+      ) : null}
+
+      {archived && archived.length > 0 ? (
+        <div className="border-border/60 mt-3 border-t pt-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-full justify-start px-1 text-xs"
+            aria-expanded={showArchive}
+            onClick={() => setShowArchive((v) => !v)}
+          >
+            <ArchiveIcon className="text-muted-foreground size-3.5" aria-hidden="true" />
+            Archived ({archived.length})
+          </Button>
+
+          {showArchive ? (
+            <ul className="mt-1 space-y-1">
+              {archived.map((folder) => (
+                <li key={folder.id} className="flex items-center gap-2 px-1">
+                  <span className="text-muted-foreground min-w-0 flex-1 truncate text-sm">
+                    {folder.name}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy}
+                    className="h-6 shrink-0 px-2 text-xs"
+                    onClick={() => void act("restore", folder.id)}
+                  >
+                    <ArchiveRestoreIcon className="size-3.5" aria-hidden="true" />
+                    Restore
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 }

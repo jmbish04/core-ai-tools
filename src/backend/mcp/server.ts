@@ -40,6 +40,7 @@ import {
   MAX_RUN_MODELS,
   listAssetIterations,
   listAssets,
+  archiveFolder,
   listFolders,
   listLibrary,
   listMasks,
@@ -51,6 +52,7 @@ import {
   promoteImageToAsset,
   requireImageByPublicId,
   resolveSettings,
+  restoreFolder,
   sniffRevisionId,
   startMcpLog,
   pinRevision,
@@ -435,10 +437,30 @@ const TOOLS: Record<string, ToolDef> = {
   },
   list_folders: {
     description:
-      "List library folders (they nest to any depth). Omit parentFolderId for EVERY folder (flat — build the tree from parentFolderId); pass null for root folders only; pass an id for that folder's direct children.",
-    schema: z.object({ parentFolderId: z.string().nullish() }),
-    handler: (ctx, a) =>
-      listFolders(ctx, "parentFolderId" in definedKeys(a) ? { parentFolderId: a.parentFolderId as string | null } : undefined),
+      "List library folders (they nest to any depth). Omit parentFolderId for EVERY folder (flat — build the tree from parentFolderId); pass null for root folders only; pass an id for that folder's direct children. Archived folders are HIDDEN by default: pass archived: 'only' for the archive view or 'include' for both.",
+    schema: z.object({
+      parentFolderId: z.string().nullish(),
+      archived: z.enum(["exclude", "include", "only"]).optional(),
+    }),
+    handler: (ctx, a) => {
+      const defined = definedKeys(a);
+      return listFolders(ctx, {
+        ...("parentFolderId" in defined ? { parentFolderId: a.parentFolderId as string | null } : {}),
+        ...("archived" in defined ? { archived: a.archived as "exclude" | "include" | "only" } : {}),
+      });
+    },
+  },
+  archive_folder: {
+    description:
+      "Archive (retire) a library folder. Soft — nothing is deleted. The folder's ENTIRE SUBTREE is archived with it (a child left live would surface at the root looking like a new top-level folder), while the images inside are untouched and still listable by folder id. Archived folders are hidden from list_folders unless you pass archived: 'only' or 'include'. Reversible via restore_folder.",
+    schema: z.object({ folderId: z.string() }),
+    handler: (ctx, a) => archiveFolder(ctx, a.folderId as string),
+  },
+  restore_folder: {
+    description:
+      "Restore an archived folder, bringing back exactly the descendants that the same archive took down (a child archived separately stays archived). Refused if the folder's parent is still archived — restore the parent first, which brings this one back with it.",
+    schema: z.object({ folderId: z.string() }),
+    handler: (ctx, a) => restoreFolder(ctx, a.folderId as string),
   },
   move_folder: {
     description:

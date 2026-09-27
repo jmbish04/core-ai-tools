@@ -120,6 +120,13 @@
       "when": 1790483577910,
       "tag": "0016_fat_oracle",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1790488263259,
+      "tag": "0017_normal_earthquake",
+      "breakpoints": true
     }
   ]
 }

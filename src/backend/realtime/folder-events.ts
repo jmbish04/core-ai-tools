@@ -21,6 +21,7 @@ export const FolderEventType = {
   FolderRenamed: "folder_renamed",
   FolderMoved: "folder_moved",
   FolderArchived: "folder_archived",
+  FolderRestored: "folder_restored",
   FolderSettingsChanged: "folder_settings_changed",
   ImageAdded: "image_added",
   ImageMoved: "image_moved",
@@ -43,6 +44,10 @@ export type FolderEvent =
   | { type: "folder_renamed"; folderId: string; name: string }
   | { type: "folder_moved"; folderId: string; fromParentId: string | null; toParentId: string | null }
   | { type: "folder_archived"; folderId: string }
+  // Restore is its own event, not a re-used folder_created. Emitting "created"
+  // for a restore is a lie of provenance in the log, and a client that animates
+  // a new folder would animate a restore.
+  | { type: "folder_restored"; folderId: string; name: string; parentFolderId: string | null }
   /** `changed` lists the settings keys that moved — values are re-read from the API. */
   | { type: "folder_settings_changed"; folderId: string; changed: string[] }
   | { type: "image_added"; folderId: string; imageId: string }

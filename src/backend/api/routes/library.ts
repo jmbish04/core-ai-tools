@@ -15,6 +15,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 
 import {
+  archiveFolder,
   backfillPublicIds,
   completeUpload,
   createCoreContext,
@@ -29,6 +30,7 @@ import {
   renameFolder,
   requireImageByPublicId,
   resolveSettings,
+  restoreFolder,
   softDeleteImage,
   unflagImageBad,
   updateFolderSettings,
@@ -65,13 +67,22 @@ libraryRouter.openapi(
     method: "get",
     path: "/api/library/folders",
     tags: ["library"],
-    request: { query: z.object({ parentFolderId: z.string().optional() }) },
+    request: {
+      query: z.object({
+        parentFolderId: z.string().optional(),
+        /** Archived folders are hidden unless asked for. `only` is the archive view. */
+        archived: z.enum(["exclude", "include", "only"]).optional(),
+      }),
+    },
     responses: ok,
   }),
   async (c) => {
-    const raw = c.req.valid("query").parentFolderId;
+    const { parentFolderId: raw, archived } = c.req.valid("query");
     // A query string cannot carry a real null, so the literal "null" selects roots.
-    const scope = raw === undefined ? undefined : { parentFolderId: raw === "null" ? null : raw };
+    const scope = {
+      ...(raw === undefined ? {} : { parentFolderId: raw === "null" ? null : raw }),
+      ...(archived ? { archived } : {}),
+    };
     return c.json({ folders: await listFolders(createCoreContext(c.env), scope) });
   },
 );
@@ -219,6 +230,38 @@ libraryRouter.openapi(
         newParentId: c.req.valid("json").parentFolderId,
       }),
     ),
+);
+
+/**
+ * Archive (retire) a folder. SOFT — the row survives because images and asset
+ * lineage FK into it. The whole subtree goes down with it; images are untouched.
+ * Semantics and the reasoning live in `core/library/folders.ts`.
+ */
+libraryRouter.openapi(
+  createRoute({
+    method: "post",
+    path: "/api/library/folders/{id}/archive",
+    tags: ["library"],
+    request: { params: idParam },
+    responses: ok,
+  }),
+  async (c) => c.json(await archiveFolder(createCoreContext(c.env), c.req.valid("param").id)),
+);
+
+/**
+ * Restore an archived folder and exactly the descendants the same archive took
+ * down. 400 when its parent is still archived — core refuses rather than
+ * re-homing the folder at the root.
+ */
+libraryRouter.openapi(
+  createRoute({
+    method: "post",
+    path: "/api/library/folders/{id}/restore",
+    tags: ["library"],
+    request: { params: idParam },
+    responses: ok,
+  }),
+  async (c) => c.json(await restoreFolder(createCoreContext(c.env), c.req.valid("param").id)),
 );
 
 // ---------------------------------------------------------------------------
