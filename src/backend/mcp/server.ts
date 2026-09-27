@@ -15,6 +15,7 @@ import {
   archiveAsset,
   restoreAsset,
   cancelRevision,
+  compareModels,
   createAsset,
   createCoreContext,
   createFolder,
@@ -34,6 +35,9 @@ import {
   MAX_GENERATE_COUNT,
   VARIATION_SUFFIXES,
   gradeRevision,
+  getModelRun,
+  listModelRuns,
+  MAX_RUN_MODELS,
   listAssetIterations,
   listAssets,
   listFolders,
@@ -61,7 +65,7 @@ import {
   updateImageMetadata,
   getSessionTree,
 } from "@/backend/core";
-import type { CoreContext } from "@/backend/core";
+import type { CoreContext, ModelRunWithResults } from "@/backend/core";
 import { listModels } from "@/backend/ai/registry";
 import { buildMcpEditPayload } from "./payload";
 import { EXECUTE_CONVENTION, isValidSandboxNonce, runScript } from "./codemode";
@@ -131,6 +135,39 @@ async function runAndPayload(ctx: CoreContext, rev: Awaited<ReturnType<typeof su
  */
 function imageResultContent(r: { image: unknown; imageUrl: string | null; thumbUrl: string | null }) {
   return [r.image, { type: "text", text: JSON.stringify({ imageUrl: r.imageUrl, thumbUrl: r.thumbUrl }) }];
+}
+
+/**
+ * Serialize one multi-model run into the §4.2 compact payload: no inline bytes,
+ * every output reachable by URL, and each model's EXACT prompt kept alongside
+ * its result so the comparison is readable.
+ */
+async function runPayload(ctx: CoreContext, r: ModelRunWithResults, host: string) {
+  const urls = await resolveImageUrls(ctx, r.results.map((x) => x.outputImageId), `https://${host}`);
+  return {
+    run_id: r.run.id,
+    status: r.status,
+    prompt: r.run.prompt,
+    input_image_id: r.run.inputImageId,
+    mask_id: r.run.maskId,
+    folder_id: r.run.folderId,
+    app_url: `https://${host}/runs/${r.run.id}`,
+    results: r.results.map((x) => ({
+      requested_model: x.requestedModel,
+      served_model: x.servedModel,
+      status: x.status,
+      prompt_sent: x.promptSent,
+      mask_sent_in_band: x.maskSent,
+      image_id: x.outputImageId,
+      image_url: x.outputImageId ? (urls.get(x.outputImageId)?.imageUrl ?? null) : null,
+      thumb_url: x.outputImageId ? (urls.get(x.outputImageId)?.thumbUrl ?? null) : null,
+      latency_ms: x.latencyMs,
+      cost_usd: x.costUsd,
+      tokens: { in: x.tokensIn, out: x.tokensOut, thinking: x.tokensThinking },
+      error_code: x.errorCode,
+      error_message: x.errorMessage,
+    })),
+  };
 }
 
 const TOOLS: Record<string, ToolDef> = {
@@ -559,6 +596,41 @@ const TOOLS: Record<string, ToolDef> = {
       "Recent MCP tool calls with their full request payloads and results/errors. Use this to review exactly what was tried in a session and reason about why an edit did not turn out as intended. Filter by sessionUuid.",
     schema: z.object({ sessionUuid: z.string().optional(), limit: z.number().optional() }),
     handler: (ctx, a) => listMcpLogs(ctx, a as any),
+  },
+  compare_models: {
+    description:
+      `Run ONE intent against several models at once and compare the outputs side by side. ` +
+      `Give inputImageId to compare edits of an existing image (optionally maskId to confine them), or omit it to ` +
+      `compare prompt-only generation. Up to ${MAX_RUN_MODELS} models; they run concurrently. ` +
+      `The prompt is REWRITTEN PER PROVIDER before dispatch (a native mask channel gets a short literal instruction; ` +
+      `a model without one gets the region described in words) and each result carries the exact prompt_sent. ` +
+      `One model failing does not fail the run — its result row carries the error and the others still return. ` +
+      `Every output is registered as a library image in folderId, so it shows up in the folder tree. ` +
+      `Call list_available_models first to pick ids. ${SESSION_NOTE}`,
+    schema: z.object({
+      prompt: z.string().min(1),
+      models: z.array(z.string().min(1)).min(1).max(MAX_RUN_MODELS),
+      inputImageId: z.string().optional(),
+      maskId: z.string().optional(),
+      folderId: z.string().optional(),
+      contextText: z.string().optional(),
+    }),
+    handler: async (ctx, a, host) =>
+      runPayload(ctx, await compareModels(ctx, { ...(a as any), createdVia: "mcp" }), host),
+  },
+  get_model_run: {
+    description:
+      "One multi-model run with every model's result: the exact prompt each model was sent, its output image URLs, latency, cost, tokens, and any error.",
+    schema: z.object({ runId: z.string() }),
+    handler: async (ctx, a, host) => runPayload(ctx, await getModelRun(ctx, a.runId as string), host),
+  },
+  list_model_runs: {
+    description: "Recent multi-model runs, newest first. Filter by folderId.",
+    schema: z.object({ folderId: z.string().optional(), limit: z.number().optional() }),
+    handler: async (ctx, a, host) => {
+      const runs = await listModelRuns(ctx, a as any);
+      return { runs: await Promise.all(runs.map((r) => runPayload(ctx, r, host))) };
+    },
   },
 };
 

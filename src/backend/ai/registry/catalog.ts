@@ -8,9 +8,15 @@
  * docs each quarter.
  *
  * MASK FINDING: the dedicated Gemini IMAGE models (3.1 Flash Image, 3 Pro Image,
- * 3.1 Flash Lite, 2.5 legacy) DO support masked inpainting — the adapter sends
- * the base image + the mask + the instruction, and the model edits within the
- * mask (`mask_inpainting: true`). The non-image Gemini models can't: 3.6 Flash is
+ * 3.1 Flash Lite, 2.5 legacy) have NO mask parameter — the Interactions API does
+ * not offer one. The adapter sends the base image + the mask PNG + a convention
+ * instruction and the model honours it, which is EMULATION
+ * (`mask_inpainting: false, mask_emulated_only: true`): masked edits are still
+ * permitted, and the revision is flagged `mask_emulated`. These flags were the
+ * other way round while the per-entry notes said "masking is emulated"; the
+ * adapter settles it, and core/runs/prompt.ts branches on them, so the
+ * contradiction was load-bearing. The non-image Gemini models can't mask at all:
+ * 3.6 Flash is
  * understanding/agentic (no image output) and Omni is video — both
  * `mask_inpainting: false`. OpenAI's gpt-image-2 and the Images 2.5 models (Flare / Sunburst) have a native
  * mask channel, which is why Flare is the `image_edit` default — see its entry.
@@ -30,8 +36,10 @@ export const MODEL_CATALOG: ModelEntry[] = [
     capabilities: {
       text_to_image: true,
       image_to_image: true,
-      mask_inpainting: true,
-      mask_emulated_only: false,
+      // No mask parameter exists on the Interactions API: the adapter sends the
+      // mask as an image part plus a convention instruction, which is emulation.
+      mask_inpainting: false,
+      mask_emulated_only: true,
       multi_reference_image: true,
       blueprint_json: true,
       grounding_web: true,
@@ -56,8 +64,10 @@ export const MODEL_CATALOG: ModelEntry[] = [
     capabilities: {
       text_to_image: true,
       image_to_image: true,
-      mask_inpainting: true,
-      mask_emulated_only: false,
+      // No mask parameter exists on the Interactions API: the adapter sends the
+      // mask as an image part plus a convention instruction, which is emulation.
+      mask_inpainting: false,
+      mask_emulated_only: true,
       multi_reference_image: true,
       blueprint_json: true,
       grounding_web: true,
@@ -82,8 +92,10 @@ export const MODEL_CATALOG: ModelEntry[] = [
     capabilities: {
       text_to_image: true,
       image_to_image: true,
-      mask_inpainting: true,
-      mask_emulated_only: false,
+      // No mask parameter exists on the Interactions API: the adapter sends the
+      // mask as an image part plus a convention instruction, which is emulation.
+      mask_inpainting: false,
+      mask_emulated_only: true,
       multi_reference_image: false,
       blueprint_json: false,
       grounding_web: false,
@@ -109,8 +121,10 @@ export const MODEL_CATALOG: ModelEntry[] = [
     capabilities: {
       text_to_image: true,
       image_to_image: true,
-      mask_inpainting: true,
-      mask_emulated_only: false,
+      // No mask parameter exists on the Interactions API: the adapter sends the
+      // mask as an image part plus a convention instruction, which is emulation.
+      mask_inpainting: false,
+      mask_emulated_only: true,
       multi_reference_image: true,
       blueprint_json: false,
       grounding_web: false,

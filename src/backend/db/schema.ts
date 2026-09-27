@@ -45,3 +45,4 @@ export * from "./schemas/models";
 export * from "./schemas/usage";
 export * from "./schemas/prompts";
 export * from "./schemas/understanding";
+export * from "./schemas/runs";

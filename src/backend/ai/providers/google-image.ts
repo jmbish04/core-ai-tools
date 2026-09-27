@@ -290,8 +290,10 @@ export const googleImageAdapter: ProviderAdapter = {
       throw new ProviderError("Gemini Interactions returned no image.", { id: interaction?.id });
     }
     if (conversationLost) result.conversationLost = true;
-    // The mask is sent to the model (image part + instruction), so it's applied
-    // natively — not a post-hoc composite. Leave maskEmulated false.
+    // The mask travels as an image part plus a convention instruction, not through
+    // a mask parameter — there isn't one. That is emulation, and the revision says
+    // so rather than claiming a native channel it never used.
+    if (req.maskBase64) result.maskEmulated = true;
     return result;
   },
 
