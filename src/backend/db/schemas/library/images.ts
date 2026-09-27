@@ -6,13 +6,46 @@
  * Deletes are SOFT only (`deleted_at`). A hard delete would orphan revision
  * history — a `revisions.input_image_id` / `output_image_id` could point at a
  * vanished row — so the service layer never issues DELETE against this table.
+ *
+ * `public_id` is the SHORT, human-copyable handle (`img_<10 chars>`): what a user
+ * copies to the clipboard and pastes into a prompt, as opposed to the UUID `id`.
+ * It is generated per row by `shortPublicId()` and guarded by a unique index.
+ * Rows created before the column existed carry NULL (SQLite permits many NULLs
+ * in a unique index); `backfillPublicIds` fills them in.
  */
 
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 
 import { libraryFolders } from "./folders";
+
+// ---------------------------------------------------------------------------
+// Short public id
+// ---------------------------------------------------------------------------
+
+/**
+ * Base-32 alphabet with the visually ambiguous letters (i, l, o, u) removed, so
+ * a public id survives being read aloud or retyped from a screenshot.
+ */
+const PUBLIC_ID_ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz";
+
+/**
+ * Generate a short, URL-safe, human-copyable public id (`img_` + 10 base-32
+ * characters ≈ 50 bits of entropy). Applied automatically as the column default
+ * on insert, so every new row gets one without the call site knowing.
+ *
+ * @param length Number of random characters after the prefix (default 10).
+ * @returns A new id such as `img_7k2qp9xw3b`.
+ * @example const id = shortPublicId(); // "img_7k2qp9xw3b"
+ */
+export function shortPublicId(length = 10): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  let out = "img_";
+  // 32-char alphabet → 5 bits per byte; the discarded high bits cost nothing.
+  for (const b of bytes) out += PUBLIC_ID_ALPHABET[b & 31];
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // Table & column documentation (consumed by /api/docs/schema)
@@ -25,6 +58,14 @@ export const LIBRARY_IMAGES_TABLE_DESCRIPTION =
 /** Per-column descriptions surfaced in the documentation schema viewer. */
 export const LIBRARY_IMAGES_COLUMN_DESCRIPTIONS: Record<string, string> = {
   id: "UUID primary key, generated via crypto.randomUUID().",
+  public_id:
+    "Short, URL-safe, human-copyable handle (img_<10 base-32 chars>), unique. This is what a user copies to the clipboard and pastes into a prompt. NULL only on rows predating the column.",
+  title: "Short human-authored name for the image, distinct from original_filename.",
+  usage_instructions:
+    "How a model or a person should use this image (e.g. 'use only the countertop texture, ignore the lighting').",
+  context_text: "Background a model needs about the image (what it is, where it came from, what matters in it).",
+  role:
+    "Default role this image plays when pulled into an edit: base (the thing being edited), reference (look/style/object to draw from), or inject (composited into the output). NULL = unspecified; session_images.role still overrides per session.",
   cf_image_id: "Cloudflare Images image id — the handle used to build variant URLs.",
   delivery_url: "Base Cloudflare Images delivery URL for this image.",
   folder_id: "FK into library_folders.id — null means the image sits at library root.",
@@ -52,6 +93,11 @@ export const libraryImages = sqliteTable(
     id: text("id")
       .primaryKey()
       .$defaultFn(() => crypto.randomUUID()),
+    /**
+     * Short human-copyable handle (see `shortPublicId`). Generated per row so no
+     * call site has to remember to set it; unique index below is the backstop.
+     */
+    publicId: text("public_id").$defaultFn(() => shortPublicId()),
     cfImageId: text("cf_image_id").notNull(),
     deliveryUrl: text("delivery_url").notNull(),
     /** FK into library_folders.id — null means the image sits at library root. */
@@ -59,8 +105,16 @@ export const libraryImages = sqliteTable(
       onDelete: "set null",
     }),
     originalFilename: text("original_filename"),
+    /** Short human-authored name, distinct from the upload filename. */
+    title: text("title"),
     /** Optional caption / provenance (material name, etc.); doubles as reference-image context. */
     description: text("description"),
+    /** How this image should be used by a model or a person. */
+    usageInstructions: text("usage_instructions"),
+    /** Background a model needs about the image. */
+    contextText: text("context_text"),
+    /** Default role in an edit. `session_images.role` overrides per session. */
+    role: text("role", { enum: ["base", "reference", "inject"] }),
     /** Non-null = flagged bad (ignore for editing); the value is when it was flagged. Undo sets it null. */
     flaggedBadAt: integer("flagged_bad_at", { mode: "timestamp" }),
     /** Why it was flagged bad, or null. */
@@ -114,6 +168,9 @@ export const libraryImages = sqliteTable(
   (t) => [
     // "list images in folder X" — the library grid's primary query.
     index("idx_library_images_folder").on(t.folderId),
+    // The copyable handle must resolve to exactly one image. SQLite allows many
+    // NULLs here, which is what lets pre-existing rows survive the migration.
+    uniqueIndex("uniq_library_images_public_id").on(t.publicId),
     // TTL sweep: rows with an expiry whose bytes aren't yet purged.
     index("idx_library_images_expiry")
       .on(t.expiresAt)

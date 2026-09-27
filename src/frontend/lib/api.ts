@@ -58,11 +58,14 @@ export async function apiSend<T>(
   method: "POST" | "PATCH" | "PUT" | "DELETE",
   path: string,
   body?: unknown,
+  /** Cancellation, for callers with a Stop control that has to mean it. */
+  opts?: { signal?: AbortSignal },
 ): Promise<T> {
   const res = await fetch(`/api/${path.replace(/^\//, "")}`, {
     method,
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal: opts?.signal,
   });
   return parse<T>(res);
 }

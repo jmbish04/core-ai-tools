@@ -12,7 +12,11 @@ import { z } from "zod";
 
 import {
   approveRevision,
+  archiveAsset,
+  restoreAsset,
   cancelRevision,
+  compareModels,
+  createAsset,
   createCoreContext,
   createFolder,
   createMask,
@@ -26,13 +30,29 @@ import {
   registerImageFromSource,
   forkRevision,
   finishMcpLog,
+  generateImages,
+  GENERATE_PRESETS,
+  MAX_GENERATE_COUNT,
+  VARIATION_SUFFIXES,
   gradeRevision,
+  getModelRun,
+  listModelRuns,
+  MAX_RUN_MODELS,
+  listAssetIterations,
+  listAssets,
+  archiveFolder,
+  listFolders,
   listLibrary,
   listMasks,
   listMcpLogs,
   listSessions,
   listSessionsForImage,
   listTemplates,
+  moveFolder,
+  promoteImageToAsset,
+  requireImageByPublicId,
+  resolveSettings,
+  restoreFolder,
   sniffRevisionId,
   startMcpLog,
   pinRevision,
@@ -42,11 +62,15 @@ import {
   setAssetTtl,
   softDeleteMask,
   submitEdit,
+  updateAsset,
+  updateFolderSettings,
+  updateImageMetadata,
   getSessionTree,
 } from "@/backend/core";
-import type { CoreContext } from "@/backend/core";
+import type { CoreContext, ModelRunWithResults } from "@/backend/core";
 import { listModels } from "@/backend/ai/registry";
 import { buildMcpEditPayload } from "./payload";
+import { EXECUTE_CONVENTION, isValidSandboxNonce, runScript } from "./codemode";
 import {
   imageContentBlock,
   maskImageBlock,
@@ -55,6 +79,7 @@ import {
   serializeMasks,
   serializeSessions,
   serializeSessionTree,
+  resolveImageUrls,
 } from "./serialize";
 
 // Auth is enforced by the OAuth 2.1 layer (workers-oauth-provider) that wraps
@@ -63,14 +88,30 @@ import {
 // callback (see backend/mcp/oauth.ts). So `handleMcp` here assumes the request is
 // already authenticated and just dispatches.
 
+/** Public host used to build deep links for a sandbox-originated tool call (which
+ *  has no inbound Request of its own to read the host from). */
+const MCP_PUBLIC_HOST = "core-ai-tools.hacolby.workers.dev";
+
 const SESSION_NOTE = "Session-scoped; results appear in the web UI in realtime.";
 
-interface ToolDef {
+export interface ToolDef {
   description: string;
   schema: z.ZodTypeAny;
   handler: (ctx: CoreContext, args: Record<string, unknown>, host: string) => Promise<unknown>;
   /** Handler returns MCP content blocks directly (e.g. image blocks) — not JSON. */
   raw?: boolean;
+}
+
+/**
+ * Drop keys whose value is `undefined`, KEEPING nulls.
+ *
+ * The metadata/settings core functions decide what to touch with `"key" in input`,
+ * and `null` is a meaningful value there ("clear this, inherit/derive again"). A
+ * validated args object that materialises an absent optional key as `undefined`
+ * would therefore clear fields the caller never mentioned.
+ */
+function definedKeys(obj: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined));
 }
 
 /** Wrap a revision result in the §4.2 compact payload. */
@@ -98,7 +139,84 @@ function imageResultContent(r: { image: unknown; imageUrl: string | null; thumbU
   return [r.image, { type: "text", text: JSON.stringify({ imageUrl: r.imageUrl, thumbUrl: r.thumbUrl }) }];
 }
 
+/**
+ * Serialize one multi-model run into the §4.2 compact payload: no inline bytes,
+ * every output reachable by URL, and each model's EXACT prompt kept alongside
+ * its result so the comparison is readable.
+ */
+async function runPayload(ctx: CoreContext, r: ModelRunWithResults, host: string) {
+  const urls = await resolveImageUrls(ctx, r.results.map((x) => x.outputImageId), `https://${host}`);
+  return {
+    run_id: r.run.id,
+    status: r.status,
+    prompt: r.run.prompt,
+    input_image_id: r.run.inputImageId,
+    mask_id: r.run.maskId,
+    folder_id: r.run.folderId,
+    app_url: `https://${host}/runs/${r.run.id}`,
+    results: r.results.map((x) => ({
+      requested_model: x.requestedModel,
+      served_model: x.servedModel,
+      status: x.status,
+      prompt_sent: x.promptSent,
+      mask_sent_in_band: x.maskSent,
+      image_id: x.outputImageId,
+      image_url: x.outputImageId ? (urls.get(x.outputImageId)?.imageUrl ?? null) : null,
+      thumb_url: x.outputImageId ? (urls.get(x.outputImageId)?.thumbUrl ?? null) : null,
+      latency_ms: x.latencyMs,
+      cost_usd: x.costUsd,
+      tokens: { in: x.tokensIn, out: x.tokensOut, thinking: x.tokensThinking },
+      error_code: x.errorCode,
+      error_message: x.errorMessage,
+    })),
+  };
+}
+
 const TOOLS: Record<string, ToolDef> = {
+  generate_image: {
+    description:
+      `Generate NEW images from a text prompt (no source image) into the library; returns image ids + URLs. ` +
+      `Use a returned image id as create_session.originLibraryImageId to start editing it. ` +
+      `Variations: count (1–${MAX_GENERATE_COUNT}), styles[] (one image per style, e.g. watercolor, photorealistic), ` +
+      `variations[] (each axis adds 2 prompts; crossed with styles, clamped to count). Variations render in parallel. ` +
+      `preset: icon (type app-icon|favicon|ui-element, style, background), pattern (type seamless|texture|wallpaper, ` +
+      `style, density sparse|medium|dense, colors), diagram (type flowchart|architecture|network|database|wireframe|` +
+      `mindmap|sequence, style, layout, density=complexity, colors), story (count frames, default 4; type ` +
+      `story|process|tutorial|timeline — frames are chained for visual consistency, rendered sequentially). ` +
+      `Partial failures are listed per prompt; the call errors only if nothing rendered.`,
+    schema: z.object({
+      prompt: z.string().min(1),
+      count: z.number().int().min(1).max(MAX_GENERATE_COUNT).optional(),
+      styles: z.array(z.string().min(1)).max(MAX_GENERATE_COUNT).optional(),
+      variations: z.array(z.enum(Object.keys(VARIATION_SUFFIXES) as [string, ...string[]])).optional(),
+      preset: z.enum(GENERATE_PRESETS).optional(),
+      type: z.string().optional(),
+      style: z.string().optional(),
+      background: z.string().optional(),
+      density: z.string().optional(),
+      colors: z.string().optional(),
+      layout: z.string().optional(),
+      requestedModel: z.string().optional(),
+      aspectRatio: z.string().optional(),
+      resolution: z.enum(["512px", "1K", "2K", "4K"]).optional(),
+      folderId: z.string().optional(),
+    }),
+    handler: async (ctx, a, host) => {
+      const out = await generateImages(ctx, { ...(a as any), surface: "mcp" });
+      const urls = await resolveImageUrls(ctx, out.images.map((i) => i.image.id), `https://${host}`);
+      return {
+        model: out.model,
+        images: out.images.map((i) => ({
+          index: i.index,
+          image_id: i.image.id,
+          prompt: i.prompt,
+          image_url: urls.get(i.image.id)?.imageUrl ?? null,
+          thumb_url: urls.get(i.image.id)?.thumbUrl ?? null,
+        })),
+        failures: out.failures,
+      };
+    },
+  },
   create_session: {
     description: `Start a session from a library image. A session name (title) is REQUIRED. ${SESSION_NOTE}`,
     schema: z.object({
@@ -312,9 +430,156 @@ const TOOLS: Record<string, ToolDef> = {
     handler: (ctx, a) => unflagImageBad(ctx, a.libraryImageId as string),
   },
   create_folder: {
-    description: "Create a library folder.",
-    schema: z.object({ name: z.string(), parentFolderId: z.string().optional() }),
+    description:
+      "Create a library folder. Pass parentFolderId to nest it inside another folder (folders nest to any depth); omit it for a root folder. A child folder inherits its ancestors' settings — see get_folder_settings.",
+    schema: z.object({ name: z.string(), parentFolderId: z.string().nullish() }),
     handler: (ctx, a) => createFolder(ctx, a as any),
+  },
+  list_folders: {
+    description:
+      "List library folders (they nest to any depth). Omit parentFolderId for EVERY folder (flat — build the tree from parentFolderId); pass null for root folders only; pass an id for that folder's direct children. Archived folders are HIDDEN by default: pass archived: 'only' for the archive view or 'include' for both.",
+    schema: z.object({
+      parentFolderId: z.string().nullish(),
+      archived: z.enum(["exclude", "include", "only"]).optional(),
+    }),
+    handler: (ctx, a) => {
+      const defined = definedKeys(a);
+      return listFolders(ctx, {
+        ...("parentFolderId" in defined ? { parentFolderId: a.parentFolderId as string | null } : {}),
+        ...("archived" in defined ? { archived: a.archived as "exclude" | "include" | "only" } : {}),
+      });
+    },
+  },
+  archive_folder: {
+    description:
+      "Archive (retire) a library folder. Soft — nothing is deleted. The folder's ENTIRE SUBTREE is archived with it (a child left live would surface at the root looking like a new top-level folder), while the images inside are untouched and still listable by folder id. Archived folders are hidden from list_folders unless you pass archived: 'only' or 'include'. Reversible via restore_folder.",
+    schema: z.object({ folderId: z.string() }),
+    handler: (ctx, a) => archiveFolder(ctx, a.folderId as string),
+  },
+  restore_folder: {
+    description:
+      "Restore an archived folder, bringing back exactly the descendants that the same archive took down (a child archived separately stays archived). Refused if the folder's parent is still archived — restore the parent first, which brings this one back with it.",
+    schema: z.object({ folderId: z.string() }),
+    handler: (ctx, a) => restoreFolder(ctx, a.folderId as string),
+  },
+  move_folder: {
+    description:
+      "Re-parent a folder (parentFolderId null = move to the library root). Refused if the target is the folder itself or one of its own descendants (that would make a cycle).",
+    schema: z.object({ folderId: z.string(), parentFolderId: z.string().nullable() }),
+    handler: (ctx, a) =>
+      moveFolder(ctx, { folderId: a.folderId as string, newParentId: a.parentFolderId as string | null }),
+  },
+  get_folder_settings: {
+    description:
+      "Effective settings for a folder (defaultPrompt, contextText, useCase, preferredModels, approvalPolicy). Each comes back as { value, fromFolderId, inherited } so you can tell a value set HERE from one inherited from an ancestor, plus ancestorPath (folder first, root last). Read this before composing a prompt for an image in that folder — contextText and defaultPrompt are standing instructions from the user.",
+    schema: z.object({ folderId: z.string() }),
+    handler: (ctx, a) => resolveSettings(ctx, a.folderId as string),
+  },
+  set_folder_settings: {
+    description:
+      "Write a folder's own settings. Send null for a setting to CLEAR it, which makes the folder inherit that setting from its nearest ancestor again; omit a key to leave it untouched. Returns the resolved (post-write) view. preferredModels is advisory — task_model_defaults stays authoritative for model resolution.",
+    schema: z.object({
+      folderId: z.string(),
+      defaultPrompt: z.string().nullish(),
+      contextText: z.string().nullish(),
+      useCase: z.string().nullish(),
+      preferredModels: z.array(z.string()).nullish(),
+      approvalPolicy: z.enum(["auto", "masked_only", "always"]).nullish(),
+    }),
+    handler: async (ctx, a) => {
+      const { folderId, ...rest } = a as { folderId: string } & Record<string, unknown>;
+      await updateFolderSettings(ctx, folderId, definedKeys(rest));
+      return resolveSettings(ctx, folderId);
+    },
+  },
+  update_image_metadata: {
+    description:
+      "Edit a library image's human metadata: title, description, usageInstructions (how it should be used in an edit), contextText (standing context about it), role (base|reference|inject). Send null to clear a field; omit a key to leave it alone. Returns the updated row with its urls and public_id.",
+    schema: z.object({
+      libraryImageId: z.string(),
+      title: z.string().nullish(),
+      description: z.string().nullish(),
+      usageInstructions: z.string().nullish(),
+      contextText: z.string().nullish(),
+      role: z.enum(["base", "reference", "inject"]).nullish(),
+    }),
+    handler: async (ctx, a, host) => {
+      const { libraryImageId, ...rest } = a as { libraryImageId: string } & Record<string, unknown>;
+      const row = await updateImageMetadata(ctx, { imageId: libraryImageId, ...definedKeys(rest) });
+      return (await serializeLibrary(ctx, [row], `https://${host}`))[0];
+    },
+  },
+  get_image_by_public_id: {
+    description:
+      "Resolve the short handle a user copied out of the UI (`img_…`) to its library image, with urls. Use this whenever the user pastes an id instead of naming an image. Errors (never returns empty) if no live image carries that id.",
+    schema: z.object({ publicId: z.string() }),
+    handler: async (ctx, a, host) =>
+      (await serializeLibrary(ctx, [await requireImageByPublicId(ctx, a.publicId as string)], `https://${host}`))[0],
+  },
+  create_asset: {
+    description:
+      "Make an already-registered library image an ASSET — a thing the user returns to (a material, a fixture, a product shot) whose every iteration is tracked. Errors if that image is already an asset (the existing asset id is in the message).",
+    schema: z.object({
+      libraryImageId: z.string(),
+      name: z.string().optional(),
+      description: z.string().nullish(),
+      usageInstructions: z.string().nullish(),
+      contextText: z.string().nullish(),
+    }),
+    handler: (ctx, a) => createAsset(ctx, { ...(definedKeys(a) as any) }),
+  },
+  promote_image_to_asset: {
+    description:
+      "Promote an EXISTING library image into an asset. The image row is copied (same pixels, new row, fresh public_id) and the asset records what it was promoted from, so the original stays untouched in its folder. Returns { asset, libraryImage } — the copy is the asset's backing image.",
+    schema: z.object({
+      imageId: z.string(),
+      name: z.string().optional(),
+      folderId: z.string().nullish(),
+      description: z.string().nullish(),
+      usageInstructions: z.string().nullish(),
+      contextText: z.string().nullish(),
+    }),
+    handler: (ctx, a) => promoteImageToAsset(ctx, { ...(definedKeys(a) as any) }),
+  },
+  list_assets: {
+    description: "List assets, newest first. Archived assets are excluded unless includeArchived is true.",
+    schema: z.object({
+      includeArchived: z.boolean().optional(),
+      limit: z.number().int().optional(),
+      offset: z.number().int().optional(),
+    }),
+    handler: async (ctx, a) => ({ assets: await listAssets(ctx, a as any) }),
+  },
+  list_asset_iterations: {
+    description:
+      "Every image this asset ever produced, oldest first — the flat timeline. Each row carries the produced image (id, public_id, delivery url), the folder it landed in, and the session/revision that made it. Group by folderId or sessionUuid yourself; the rows are already in timeline order.",
+    schema: z.object({ assetId: z.string(), limit: z.number().int().optional(), offset: z.number().int().optional() }),
+    handler: async (ctx, a) => ({
+      iterations: await listAssetIterations(ctx, a.assetId as string, a as any),
+    }),
+  },
+  update_asset: {
+    description:
+      "Rename an asset and/or edit its metadata (description, usageInstructions, contextText). Send null to clear a metadata field; omit a key to leave it alone.",
+    schema: z.object({
+      assetId: z.string(),
+      name: z.string().optional(),
+      description: z.string().nullish(),
+      usageInstructions: z.string().nullish(),
+      contextText: z.string().nullish(),
+    }),
+    handler: (ctx, a) => updateAsset(ctx, { ...(definedKeys(a) as any) }),
+  },
+  archive_asset: {
+    description:
+      "Archive an asset so it drops out of the default list. Idempotent, and never a delete — the iterations it produced stay in history.",
+    schema: z.object({ assetId: z.string() }),
+    handler: (ctx, a) => archiveAsset(ctx, a.assetId as string),
+  },
+  restore_asset: {
+    description: "Undo an archive — the asset returns to the default list. Idempotent.",
+    schema: z.object({ assetId: z.string() }),
+    handler: (ctx, a) => restoreAsset(ctx, a.assetId as string),
   },
   list_available_models: {
     description: "Registry ids, capabilities, cost — drives model selection.",
@@ -354,7 +619,190 @@ const TOOLS: Record<string, ToolDef> = {
     schema: z.object({ sessionUuid: z.string().optional(), limit: z.number().optional() }),
     handler: (ctx, a) => listMcpLogs(ctx, a as any),
   },
+  compare_models: {
+    description:
+      `Run ONE intent against several models at once and compare the outputs side by side. ` +
+      `Give inputImageId to compare edits of an existing image (optionally maskId to confine them), or omit it to ` +
+      `compare prompt-only generation. Up to ${MAX_RUN_MODELS} models; they run concurrently. ` +
+      `The prompt is REWRITTEN PER PROVIDER before dispatch (a native mask channel gets a short literal instruction; ` +
+      `a model without one gets the region described in words) and each result carries the exact prompt_sent. ` +
+      `One model failing does not fail the run — its result row carries the error and the others still return. ` +
+      `Every output is registered as a library image in folderId, so it shows up in the folder tree. ` +
+      `Call list_available_models first to pick ids. ${SESSION_NOTE}`,
+    schema: z.object({
+      prompt: z.string().min(1),
+      models: z.array(z.string().min(1)).min(1).max(MAX_RUN_MODELS),
+      inputImageId: z.string().optional(),
+      maskId: z.string().optional(),
+      folderId: z.string().optional(),
+      contextText: z.string().optional(),
+    }),
+    handler: async (ctx, a, host) =>
+      runPayload(ctx, await compareModels(ctx, { ...(a as any), createdVia: "mcp" }), host),
+  },
+  get_model_run: {
+    description:
+      "One multi-model run with every model's result: the exact prompt each model was sent, its output image URLs, latency, cost, tokens, and any error.",
+    schema: z.object({ runId: z.string() }),
+    handler: async (ctx, a, host) => runPayload(ctx, await getModelRun(ctx, a.runId as string), host),
+  },
+  list_model_runs: {
+    description: "Recent multi-model runs, newest first. Filter by folderId.",
+    schema: z.object({ folderId: z.string().optional(), limit: z.number().optional() }),
+    handler: async (ctx, a, host) => {
+      const runs = await listModelRuns(ctx, a as any);
+      return { runs: await Promise.all(runs.map((r) => runPayload(ctx, r, host))) };
+    },
+  },
 };
+
+/** First sentence of a description — the summary `search` returns. */
+function summarize(description: string): string {
+  const cut = description.indexOf(". ");
+  return (cut === -1 ? description : description.slice(0, cut + 1)).trim();
+}
+
+/**
+ * Code-mode surface (see ./codemode.ts for why). These three are what `tools/list`
+ * advertises; all 30 named tools stay dispatchable by name, through `tools/call`
+ * directly (back-compat for a client holding a cached list) and through
+ * `call_tool` inside `execute`.
+ */
+const CODE_MODE_TOOLS: Record<string, ToolDef> = {
+  search: {
+    description:
+      "Find the tool for a job. Returns { name, summary } for every tool matching the query (omit the query to list all). Call get_schema for a tool's parameters, then execute to run it.",
+    schema: z.object({ query: z.string().optional() }),
+    handler: async (_ctx, a) => {
+      const q = String(a.query ?? "").toLowerCase();
+      const names = Object.keys(ALL_TOOLS).filter(
+        (n) => !q || n.includes(q) || ALL_TOOLS[n].description.toLowerCase().includes(q),
+      );
+      return { tools: names.map((n) => ({ name: n, summary: summarize(ALL_TOOLS[n].description) })) };
+    },
+  },
+  get_schema: {
+    description: "Full description + JSON Schema for the named tools. Fetch only the ones you are about to call.",
+    schema: z.object({ names: z.array(z.string()).min(1) }),
+    handler: async (_ctx, a) => ({
+      tools: (a.names as string[]).map((n) => {
+        const t = ALL_TOOLS[n];
+        if (!t) return { name: n, error: "unknown tool" };
+        return { name: n, description: t.description, inputSchema: z.toJSONSchema(t.schema) };
+      }),
+    }),
+  },
+  execute: {
+    description: `Run several tools in one call. ${EXECUTE_CONVENTION}`,
+    schema: z.object({ code: z.string().min(1) }),
+    handler: async (ctx, a) => {
+      const out = await runScript(ctx.env, a.code as string);
+      if (!out.ok) throw new Error(out.error ?? "script failed");
+      return out.value;
+    },
+  },
+};
+
+/**
+ * Every dispatchable tool: the domain tools plus the code-mode trio. Exported so
+ * the folder agent can expose the SAME tools to a model without a second
+ * registry — an agent that edits folders differently from the MCP surface is two
+ * products.
+ */
+export const ALL_TOOLS: Record<string, ToolDef> = { ...TOOLS, ...CODE_MODE_TOOLS };
+
+/**
+ * Dispatch one tool by name: validate, log the request to `mcp_logs` BEFORE
+ * running (so a prompt survives a crash mid-edit), run, log the outcome.
+ *
+ * @returns MCP `tools/call` result content, or an `isError` result the model can read.
+ */
+export async function callToolByName(
+  ctx: CoreContext,
+  name: string,
+  args: Record<string, unknown>,
+  host: string,
+): Promise<{ content: unknown[]; isError?: true }> {
+  const tool = ALL_TOOLS[name];
+  if (!tool) return { isError: true, content: [{ type: "text", text: `Unknown tool: ${name}` }] };
+
+  const log = await startMcpLog(ctx, { toolName: name, request: args }).catch((e) => {
+    console.error("[mcp] log start failed:", e instanceof Error ? e.message : String(e));
+    return null;
+  });
+
+  try {
+    const parsed = tool.schema.parse(args);
+    const out = await tool.handler(ctx, parsed as Record<string, unknown>, host);
+    // raw tools return MCP content blocks directly (image bytes); everything
+    // else returns JSON we wrap in a text block. Never log base64 bytes.
+    const content = tool.raw ? (out as unknown[]) : [{ type: "text", text: JSON.stringify(out, null, 2) }];
+    const logResponse = tool.raw
+      ? { blocks: (out as Array<{ type?: string; mimeType?: string }>).map((b) => ({ type: b.type, mimeType: b.mimeType })) }
+      : out;
+    if (log)
+      await finishMcpLog(ctx, { log, success: true, response: logResponse, revisionId: tool.raw ? undefined : sniffRevisionId(out) }).catch(
+        (e) => console.error("[mcp] log finish failed:", e instanceof Error ? e.message : String(e)),
+      );
+    return { content };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (log)
+      await finishMcpLog(ctx, { log, success: false, errorMessage: msg }).catch((e) =>
+        console.error("[mcp] log finish failed:", e instanceof Error ? e.message : String(e)),
+      );
+    // Tool errors are returned as an MCP tool error result (isError), not a
+    // protocol error, so the model can read + react to it.
+    return { isError: true, content: [{ type: "text", text: msg }] };
+  }
+}
+
+/**
+ * `POST /internal/mcp-tool` — the ONLY channel a code-mode sandbox has to the
+ * tools. Reached over this Worker's `SELF` service binding, authorised by the
+ * per-execution nonce (never the real API key). Body: `{ name, args }`.
+ *
+ * @returns `{ result }` with the tool's JSON, or `{ error }` (HTTP 4xx/200) —
+ *   the sandbox prelude turns a non-ok response into a thrown `call_tool` error.
+ */
+export async function handleInternalToolCall(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") return Response.json({ error: "POST only" }, { status: 405 });
+  if (!(await isValidSandboxNonce(env, request.headers.get("x-sandbox-nonce")))) {
+    return Response.json({ error: "invalid or expired sandbox nonce" }, { status: 401 });
+  }
+  let body: { name?: string; args?: Record<string, unknown> };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return Response.json({ error: "invalid JSON body" }, { status: 400 });
+  }
+  if (!body.name) return Response.json({ error: "name is required" }, { status: 400 });
+
+  const ctx = createCoreContext(env);
+  const host = MCP_PUBLIC_HOST;
+  const out = await callToolByName(ctx, body.name, body.args ?? {}, host);
+  if (out.isError) {
+    const text = (out.content[0] as { text?: string } | undefined)?.text ?? "tool failed";
+    return Response.json({ error: text }, { status: 400 });
+  }
+  // Give the script the tool's VALUE, not MCP content blocks — a script wants data.
+  const first = out.content[0] as { type?: string; text?: string } | undefined;
+  if (first?.type === "text" && typeof first.text === "string") {
+    try {
+      return Response.json({ result: JSON.parse(first.text) });
+    } catch {
+      return Response.json({ result: first.text });
+    }
+  }
+  // Image/raw tools: hand back the blocks minus any base64 payload (a script
+  // should pass URLs around, not megabytes of pixels).
+  return Response.json({
+    result: out.content.map((b) => {
+      const blk = b as Record<string, unknown>;
+      return blk.type === "image" ? { type: "image", mimeType: blk.mimeType, omitted: "base64 bytes" } : blk;
+    }),
+  });
+}
 
 interface RpcReq {
   jsonrpc: "2.0";
@@ -414,55 +862,24 @@ export async function handleMcp(request: Request, env: Env): Promise<Response> {
     case "ping":
       return result(body.id, {});
 
-    case "tools/list":
+    case "tools/list": {
+      // Code mode by default (3 tools, ~10x cheaper per session than advertising
+      // all 30). `?mode=named` on the /mcp URL restores the full named surface for
+      // a client that wants it; every name stays callable either way.
+      const advertised = new URL(request.url).searchParams.get("mode") === "named" ? ALL_TOOLS : CODE_MODE_TOOLS;
       return result(body.id, {
-        tools: Object.entries(TOOLS).map(([name, def]) => ({
+        tools: Object.entries(advertised).map(([name, def]) => ({
           name,
           description: def.description,
           inputSchema: z.toJSONSchema(def.schema),
         })),
       });
+    }
 
     case "tools/call": {
       const name = body.params?.name as string;
       const args = (body.params?.arguments ?? {}) as Record<string, unknown>;
-      const tool = TOOLS[name];
-      if (!tool) return rpcError(body.id, -32601, `Unknown tool: ${name}`);
-      const ctx = createCoreContext(env);
-
-      // Persist the request (tool + full payload) BEFORE running the handler, so
-      // the prompt survives even a crash/timeout mid-edit. A logging failure must
-      // never take down the tool, so we swallow it here (D1 being down would fail
-      // the handler anyway).
-      const log = await startMcpLog(ctx, { toolName: name, request: args }).catch((e) => {
-        console.error("[mcp] log start failed:", e instanceof Error ? e.message : String(e));
-        return null;
-      });
-
-      try {
-        const parsed = tool.schema.parse(args);
-        const out = await tool.handler(ctx, parsed as Record<string, unknown>, host);
-        // raw tools return MCP content blocks directly (image bytes); everything
-        // else returns JSON we wrap in a text block. Never log base64 bytes.
-        const content = tool.raw ? (out as unknown[]) : [{ type: "text", text: JSON.stringify(out, null, 2) }];
-        const logResponse = tool.raw
-          ? { blocks: (out as Array<{ type?: string; mimeType?: string }>).map((b) => ({ type: b.type, mimeType: b.mimeType })) }
-          : out;
-        if (log)
-          await finishMcpLog(ctx, { log, success: true, response: logResponse, revisionId: tool.raw ? undefined : sniffRevisionId(out) }).catch(
-            (e) => console.error("[mcp] log finish failed:", e instanceof Error ? e.message : String(e)),
-          );
-        return result(body.id, { content });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (log)
-          await finishMcpLog(ctx, { log, success: false, errorMessage: msg }).catch((e) =>
-            console.error("[mcp] log finish failed:", e instanceof Error ? e.message : String(e)),
-          );
-        // Tool errors are returned as an MCP tool error result (isError), not a
-        // protocol error, so the model can read + react to it.
-        return result(body.id, { isError: true, content: [{ type: "text", text: msg }] });
-      }
+      return result(body.id, await callToolByName(createCoreContext(env), name, args, host));
     }
 
     default:

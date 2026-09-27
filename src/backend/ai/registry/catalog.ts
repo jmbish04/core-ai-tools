@@ -8,11 +8,18 @@
  * docs each quarter.
  *
  * MASK FINDING: the dedicated Gemini IMAGE models (3.1 Flash Image, 3 Pro Image,
- * 3.1 Flash Lite, 2.5 legacy) DO support masked inpainting — the adapter sends
- * the base image + the mask + the instruction, and the model edits within the
- * mask (`mask_inpainting: true`). The non-image Gemini models can't: 3.6 Flash is
+ * 3.1 Flash Lite, 2.5 legacy) have NO mask parameter — the Interactions API does
+ * not offer one. The adapter sends the base image + the mask PNG + a convention
+ * instruction and the model honours it, which is EMULATION
+ * (`mask_inpainting: false, mask_emulated_only: true`): masked edits are still
+ * permitted, and the revision is flagged `mask_emulated`. These flags were the
+ * other way round while the per-entry notes said "masking is emulated"; the
+ * adapter settles it, and core/runs/prompt.ts branches on them, so the
+ * contradiction was load-bearing. The non-image Gemini models can't mask at all:
+ * 3.6 Flash is
  * understanding/agentic (no image output) and Omni is video — both
- * `mask_inpainting: false`. OpenAI gpt-image-2 also has a native mask channel.
+ * `mask_inpainting: false`. OpenAI's gpt-image-2 and the Images 2.5 models (Flare / Sunburst) have a native
+ * mask channel, which is why Flare is the `image_edit` default — see its entry.
  */
 
 import type { ModelEntry } from "./types";
@@ -24,13 +31,15 @@ export const MODEL_CATALOG: ModelEntry[] = [
     id: "gemini-3.1-flash-image",
     provider: "google",
     display_name: "Gemini 3.1 Flash Image",
-    default_for: ["image_generate", "image_edit"],
+    default_for: ["image_generate"],
     notes: "Generalist workhorse. Search + Image Search grounding, up to 14 reference images, controllable thinking. Only model with Image Search grounding + video input. Masking is emulated (no mask channel).",
     capabilities: {
       text_to_image: true,
       image_to_image: true,
-      mask_inpainting: true,
-      mask_emulated_only: false,
+      // No mask parameter exists on the Interactions API: the adapter sends the
+      // mask as an image part plus a convention instruction, which is emulation.
+      mask_inpainting: false,
+      mask_emulated_only: true,
       multi_reference_image: true,
       blueprint_json: true,
       grounding_web: true,
@@ -55,8 +64,10 @@ export const MODEL_CATALOG: ModelEntry[] = [
     capabilities: {
       text_to_image: true,
       image_to_image: true,
-      mask_inpainting: true,
-      mask_emulated_only: false,
+      // No mask parameter exists on the Interactions API: the adapter sends the
+      // mask as an image part plus a convention instruction, which is emulation.
+      mask_inpainting: false,
+      mask_emulated_only: true,
       multi_reference_image: true,
       blueprint_json: true,
       grounding_web: true,
@@ -81,8 +92,10 @@ export const MODEL_CATALOG: ModelEntry[] = [
     capabilities: {
       text_to_image: true,
       image_to_image: true,
-      mask_inpainting: true,
-      mask_emulated_only: false,
+      // No mask parameter exists on the Interactions API: the adapter sends the
+      // mask as an image part plus a convention instruction, which is emulation.
+      mask_inpainting: false,
+      mask_emulated_only: true,
       multi_reference_image: false,
       blueprint_json: false,
       grounding_web: false,
@@ -108,8 +121,10 @@ export const MODEL_CATALOG: ModelEntry[] = [
     capabilities: {
       text_to_image: true,
       image_to_image: true,
-      mask_inpainting: true,
-      mask_emulated_only: false,
+      // No mask parameter exists on the Interactions API: the adapter sends the
+      // mask as an image part plus a convention instruction, which is emulation.
+      mask_inpainting: false,
+      mask_emulated_only: true,
       multi_reference_image: true,
       blueprint_json: false,
       grounding_web: false,
@@ -177,6 +192,61 @@ export const MODEL_CATALOG: ModelEntry[] = [
       max_style_refs: 0,
       max_resolution: "1K",
       supported_aspect_ratios: GEMINI_ASPECTS,
+      cost_per_image: null,
+    },
+  },
+  {
+    id: "gpt-image-2.5-flare",
+    provider: "openai",
+    display_name: "OpenAI GPT Image 2.5 Flare",
+    notes:
+      "OpenAI's Images 2.5 line (announced 2026-09-08). Flare is the default choice: higher quality than gpt-image-2 at ~50% lower latency, markedly better at editing ONLY what was asked and at preserving reference subjects — plus a NATIVE mask channel (Gemini's masking is emulated), which is why it is the image_edit default. Model id verified live against GET /v1/models 2026-09-26 (dated snapshot: gpt-image-2.5-flare-2026-09-08).",
+    default_for: ["image_edit"],
+    capabilities: {
+      text_to_image: true,
+      image_to_image: true,
+      mask_inpainting: true,
+      mask_emulated_only: false,
+      multi_reference_image: true,
+      blueprint_json: false,
+      grounding_web: false,
+      grounding_image_search: false,
+      thinking_controllable: false,
+      interleaved_output: false,
+      video_generation: false,
+      segmentation: false,
+      max_reference_images: 4,
+      max_object_refs: 4,
+      max_style_refs: 4,
+      max_resolution: "2K",
+      supported_aspect_ratios: ["1:1", "3:2", "2:3"],
+      cost_per_image: null,
+    },
+  },
+  {
+    id: "gpt-image-2.5-sunburst",
+    provider: "openai",
+    display_name: "OpenAI GPT Image 2.5 Sunburst",
+    notes:
+      "Premium tier of Images 2.5 — tighter control across successive edits, longer generation times. Pick it explicitly for production-ready precision work; Flare is the default. Model id verified live against GET /v1/models 2026-09-26 (dated snapshot: gpt-image-2.5-sunburst-2026-09-08).",
+    capabilities: {
+      text_to_image: true,
+      image_to_image: true,
+      mask_inpainting: true,
+      mask_emulated_only: false,
+      multi_reference_image: true,
+      blueprint_json: false,
+      grounding_web: false,
+      grounding_image_search: false,
+      thinking_controllable: false,
+      interleaved_output: false,
+      video_generation: false,
+      segmentation: false,
+      max_reference_images: 4,
+      max_object_refs: 4,
+      max_style_refs: 4,
+      max_resolution: "2K",
+      supported_aspect_ratios: ["1:1", "3:2", "2:3"],
       cost_per_image: null,
     },
   },

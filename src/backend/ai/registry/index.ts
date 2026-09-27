@@ -46,6 +46,10 @@ export function modelsWithCapability(cap: keyof ModelCapabilities): ModelEntry[]
 
 /** A capability requirement derived from an edit/generation request. */
 export interface CapabilityRequirement {
+  /** Prompt-only generation (no input image). */
+  text_to_image?: boolean;
+  /** Editing an input image — keeps fallback off understanding-only models. */
+  image_to_image?: boolean;
   mask_inpainting?: boolean;
   multi_reference_count?: number;
   /** Reference images tagged role='object' — capped by max_object_refs. */
@@ -73,6 +77,8 @@ const RESOLUTION_RANK: Record<ModelCapabilities["max_resolution"], number> = {
  */
 export function modelSatisfies(model: ModelEntry, req: CapabilityRequirement): boolean {
   const c = model.capabilities;
+  if (req.text_to_image && !c.text_to_image) return false;
+  if (req.image_to_image && !c.image_to_image) return false;
   // A masked edit is satisfied by a native mask channel OR emulation (semantic /
   // composite). Emulated service is flagged `mask_emulated` on the revision.
   if (req.mask_inpainting && !c.mask_inpainting && !c.mask_emulated_only) return false;

@@ -95,12 +95,54 @@ export class ConfigError extends CoreError {
   }
 }
 
-/** An upstream provider (Gemini/OpenAI) call failed — 502-shaped, not our bug. */
+/**
+ * An upstream provider (Gemini/OpenAI) call failed — 502-shaped, not our bug.
+ * `retryable` marks a TRANSPORT failure (rate limit, 5xx, network) that
+ * `executeRevision` may route to a fallback model; policy/auth/validation
+ * failures stay non-retryable (a different model would not fix them).
+ */
 export class ProviderError extends CoreError {
-  constructor(message: string, detail?: unknown) {
+  readonly retryable: boolean;
+  constructor(message: string, detail?: unknown, retryable = false) {
     super("provider", message, 502, detail);
     this.name = "ProviderError";
+    this.retryable = retryable;
   }
+}
+
+/**
+ * Classify a raw SDK error into an actionable, correctly-flagged ProviderError
+ * (pattern from gemini-cli-extensions/nanobanana's `handleApiError`: map status
+ * and message text to a message that says what to fix). Reads `status` from the
+ * error (both `@google/genai` and `openai` SDKs expose it) and falls back to
+ * message sniffing for errors that only carry text.
+ *
+ * @param label  Provider call name for the message, e.g. "Gemini Interactions".
+ * @param err    The thrown SDK error.
+ * @returns A ProviderError whose `retryable` is true only for transport failures.
+ * @example throw classifyProviderError("OpenAI Images", err);
+ */
+export function classifyProviderError(label: string, err: unknown): ProviderError {
+  const raw = (err as Error | undefined)?.message ?? String(err);
+  const msg = raw.toLowerCase();
+  const status = Number((err as { status?: unknown } | null)?.status) || 0;
+  const fail = (hint: string, retryable: boolean) =>
+    new ProviderError(`${label} failed: ${hint} (${raw})`, err, retryable);
+
+  if (status === 401 || status === 403 || msg.includes("api key not valid") || msg.includes("permission denied")) {
+    return fail("authentication — the API key is invalid or lacks access; check the provider secret", false);
+  }
+  if (status === 429 || msg.includes("quota") || msg.includes("rate limit") || msg.includes("resource_exhausted")) {
+    return fail("rate limit / quota exceeded", true);
+  }
+  if (msg.includes("safety") || msg.includes("content policy") || msg.includes("moderation") || msg.includes("blocked")) {
+    return fail("the prompt or image was blocked by the provider's content policy — rephrase it", false);
+  }
+  if (status >= 500 || /timeout|timed out|econnreset|network|fetch failed|unavailable|overloaded/.test(msg)) {
+    return fail("provider transport error", true);
+  }
+  if (status === 400) return fail("request rejected as malformed — check prompt, image, and parameters", false);
+  return fail("unexpected error", false);
 }
 
 /** A seam that a later build phase fills in (CF Images, model dispatch, SessionDO). */

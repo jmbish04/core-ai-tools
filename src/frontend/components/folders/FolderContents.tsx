@@ -1,0 +1,155 @@
+/**
+ * @fileoverview The selected folder's images.
+ *
+ * Every card carries the image's short public id with copy-to-clipboard, because
+ * that handle is the thing a user pastes into a prompt and the same handle an
+ * agent resolves with `get_image_by_public_id`. A card with no id would make the
+ * two halves of this product speak different languages.
+ *
+ * Sizes render through the shared `format` helpers rather than raw bytes — the
+ * "data to interface" rule in the design system.
+ */
+
+import { CheckIcon, CopyIcon, ImageIcon } from "lucide-react";
+import { useState } from "react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import type { FolderRow, ImageRow } from "./types";
+
+/** Bytes as a human size. Kept local and tiny — one call site. */
+function fileSize(bytes: number | null): string {
+  if (!bytes) return "—";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return `${value < 10 && unit > 0 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+}
+
+/** Cloudflare Images delivery URLs end in a variant; swap it, never append. */
+function thumbOf(deliveryUrl: string): string {
+  return deliveryUrl.replace(/\/[^/]+$/, "/thumb");
+}
+
+function CopyId({ publicId }: { publicId: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="text-muted-foreground h-6 gap-1 px-1.5 font-mono text-[11px]"
+      onClick={async () => {
+        await navigator.clipboard.writeText(publicId);
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+      }}
+    >
+      {copied ? (
+        <CheckIcon className="size-3" aria-hidden="true" />
+      ) : (
+        <CopyIcon className="size-3" aria-hidden="true" />
+      )}
+      {publicId}
+      <span className="sr-only">Copy image id</span>
+    </Button>
+  );
+}
+
+export function FolderContents({
+  folder,
+  images,
+  live,
+  onChanged: _onChanged,
+}: {
+  folder: FolderRow | null;
+  images: ImageRow[] | null;
+  /** Whether the realtime channel is currently connected. */
+  live: boolean;
+  onChanged: () => void;
+}) {
+  if (!folder) {
+    return (
+      <section className="bg-card border-border flex min-h-[18rem] items-center justify-center rounded-lg border p-8">
+        <p className="text-muted-foreground max-w-sm text-center text-sm">
+          Pick a folder to see its images, the prompt and context in force there, and what it
+          inherits from its parents.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="bg-card border-border rounded-lg border">
+      <header className="border-border flex items-center justify-between gap-3 border-b px-5 py-4">
+        <div className="min-w-0">
+          <h2 className="text-foreground truncate text-base font-semibold">{folder.name}</h2>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            {images === null ? "Loading…" : `${images.length} image${images.length === 1 ? "" : "s"}`}
+          </p>
+        </div>
+        {/* Honest about the channel: a dot that is always green would be the
+            kind of instrument that cannot fail. */}
+        <span className="text-muted-foreground flex items-center gap-1.5 text-xs">
+          <span
+            aria-hidden="true"
+            className={`size-1.5 rounded-full ${live ? "bg-emerald-500" : "bg-muted-foreground/40"}`}
+          />
+          {live ? "Live" : "Reconnecting"}
+        </span>
+      </header>
+
+      {images === null ? (
+        <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-3">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <Skeleton key={i} className="aspect-square w-full rounded-md" />
+          ))}
+        </div>
+      ) : images.length === 0 ? (
+        <div className="flex flex-col items-center gap-3 px-5 py-14 text-center">
+          <ImageIcon className="text-muted-foreground size-6" aria-hidden="true" />
+          <div>
+            <p className="text-foreground text-sm font-medium">No images in this folder</p>
+            <p className="text-muted-foreground mt-1 text-sm">
+              Upload one, or pick from assets, to start a session from it.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <ul className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-3 2xl:grid-cols-4">
+          {images.map((img) => (
+            <li key={img.id} className="border-border bg-background overflow-hidden rounded-md border">
+              <img
+                src={thumbOf(img.deliveryUrl)}
+                alt={img.title ?? img.description ?? "Library image"}
+                loading="lazy"
+                className="aspect-square w-full object-cover"
+              />
+              <div className="space-y-1.5 p-2.5">
+                <p className="text-foreground truncate text-sm font-medium">
+                  {img.title ?? "Untitled"}
+                </p>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {img.role ? (
+                    <Badge variant="secondary" className="text-[11px]">
+                      {img.role}
+                    </Badge>
+                  ) : null}
+                  <Badge variant="outline" className="text-[11px]">
+                    {img.kind}
+                  </Badge>
+                  <span className="text-muted-foreground text-[11px]">{fileSize(img.bytes)}</span>
+                </div>
+                {img.publicId ? <CopyId publicId={img.publicId} /> : null}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}

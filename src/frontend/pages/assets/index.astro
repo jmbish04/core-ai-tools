@@ -1,0 +1,36 @@
+---
+/**
+ * @fileoverview `/assets` — the reusable source images.
+ *
+ * An asset is an image the user returns to (a room, a garment, a material).
+ * Every image generated or edited from one traces back to it, so this page is
+ * the entry point to that history.
+ */
+import ShellLayout from "@/layouts/ShellLayout.astro";
+import { AssetLibrary } from "@/components/assets/AssetLibrary";
+
+const subnav = [
+  { id: "folders", label: "Folders", href: "/folders" },
+  { id: "assets", label: "Assets", href: "/assets" },
+  { id: "compare", label: "Compare models", href: "/compare" },
+];
+---
+
+<ShellLayout
+  title="Assets"
+  description="Reusable source images, and everything made from them."
+  section="assets"
+  subnav={subnav}
+  subnavCurrent="assets"
+>
+  <div class="mx-auto w-full max-w-[90rem] px-4 pb-16 sm:px-6">
+    <header class="mb-6">
+      <h2 class="text-foreground text-lg font-semibold">Assets</h2>
+      <p class="text-muted-foreground mt-1 max-w-2xl text-sm">
+        Images you keep coming back to. Anything generated or edited from an asset stays
+        traceable to it, so you can see every direction one picture went.
+      </p>
+    </header>
+    <AssetLibrary client:load />
+  </div>
+</ShellLayout>

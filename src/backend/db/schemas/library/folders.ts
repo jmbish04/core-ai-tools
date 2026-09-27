@@ -4,6 +4,11 @@
  * root-level folder. Cycle prevention on move is enforced in the service layer
  * (`backend/core/`), not at the database level — SQLite cannot express "no
  * cycles" as a constraint.
+ *
+ * Retiring a folder is an ARCHIVE, never a delete: `archived_at`. Images and
+ * (through them) asset lineage FK into these rows, and the replay-integrity rule
+ * is that those FKs fail loud rather than orphan history — so nothing here ever
+ * issues a hard DELETE. See `core/library/folders.ts` for the cascade semantics.
  */
 
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
@@ -26,6 +31,18 @@ export const LIBRARY_FOLDERS_COLUMN_DESCRIPTIONS: Record<string, string> = {
     "Self-referential FK into library_folders.id — null means a root-level folder. On parent delete the child is orphaned (set null) so folders are never silently destroyed.",
   created_at: "Unix timestamp (seconds) when the folder was created.",
   updated_at: "Unix timestamp (seconds) of the last modification.",
+  default_prompt:
+    "INHERITABLE. Prompt text pre-filled for edits on images in this folder. NULL = inherit from the nearest ancestor that sets it.",
+  context_text:
+    "INHERITABLE. Standing context prepended to prompts for this folder's images (e.g. 'all photos are of the same kitchen'). NULL = inherit.",
+  use_case:
+    "INHERITABLE. What this folder is for (free text, e.g. 'listing photos', 'material swatches'). NULL = inherit.",
+  preferred_models:
+    "INHERITABLE. JSON array of model ids preferred for this folder, most-preferred first. Advisory only — task_model_defaults stays authoritative for resolution. NULL = inherit.",
+  approval_policy:
+    "INHERITABLE. HITL gate policy for sessions spawned from this folder: auto | masked_only | always. NULL = inherit (and if nothing in the chain sets it, the sessions table default applies).",
+  archived_at:
+    "Unix timestamp (seconds) when the folder was archived, or NULL while live. Archive is a SOFT retire — the row is never deleted because images and asset lineage FK into it. Archiving cascades to the whole subtree with ONE shared timestamp, which is what makes restore an exact undo.",
 };
 
 // ---------------------------------------------------------------------------
@@ -54,10 +71,33 @@ export const libraryFolders = sqliteTable(
     updatedAt: integer("updated_at", { mode: "timestamp" })
       .notNull()
       .$defaultFn(() => new Date()),
+
+    // --- Inheritable settings. NULL means "inherit", never "off". ---
+    /** Pre-filled prompt for edits in this folder. */
+    defaultPrompt: text("default_prompt"),
+    /** Standing context prepended to prompts for this folder's images. */
+    contextText: text("context_text"),
+    /** What the folder is for, free text. */
+    useCase: text("use_case"),
+    /** Preferred model ids, most-preferred first. Advisory; the model registry still decides. */
+    preferredModels: text("preferred_models", { mode: "json" }).$type<string[]>(),
+    /** HITL gate policy inherited by sessions spawned from images in this folder. */
+    approvalPolicy: text("approval_policy", { enum: ["auto", "masked_only", "always"] }),
+
+    /**
+     * Archived (retired) marker. NULL = live. Soft only — see the file header.
+     * A cascade stamps the whole subtree with the SAME value, so restore can
+     * un-archive exactly the rows that one archive took down.
+     */
+    archivedAt: integer("archived_at", { mode: "timestamp" }),
   },
   (t) => [
     // Tree traversal ("list children of folder X") hits this on every render.
     index("idx_library_folders_parent").on(t.parentFolderId),
+    // Serves "show me the archive" (WHERE archived_at IS NOT NULL) and the
+    // same-timestamp restore lookup. ponytail: the default live-folder filter is
+    // left to a scan — a library has tens of folders, not millions.
+    index("idx_library_folders_archived").on(t.archivedAt),
   ],
 );
 

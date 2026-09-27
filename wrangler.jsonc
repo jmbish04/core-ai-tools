@@ -42,8 +42,8 @@
   "durable_objects": {
     // Trimmed to what core-ai-tools exports (see src/_worker.ts): ChatBroker
     // (assistant-ui chat), NotificationsAgent (realtime feed), SessionDO
-    // (per-session fanout + seq allocator). The template's showcase agents are
-    // retired in migration v2 below.
+    // (per-session fanout + seq allocator), FolderDO (per-folder fanout). The
+    // template's showcase agents are retired in migration v2 below.
     "bindings": [
       {
         "name": "CHAT_BROKER",
@@ -57,6 +57,11 @@
         // Realtime fanout + seq allocator, one instance per session_uuid.
         "name": "SESSION_DO",
         "class_name": "SessionDO",
+      },
+      {
+        // Realtime fanout + seq allocator, one instance per library folder id.
+        "name": "FOLDER_DO",
+        "class_name": "FolderDO",
       },
     ],
   },
@@ -76,7 +81,19 @@
   // Cloudflare error 1042 (loopback restriction) — the binding routes internally
   // instead. See backend/ai/dispatch/guardian.ts.
   "services": [
-    { "binding": "GUARDIAN", "service": "core-guardian" }
+    // RPC door into core-guardian's AI router (GuardianRpc entrypoint). A service
+    // binding IS the trust boundary there, so this needs no token — unlike the
+    // HTTP /api/ai-router/run route, which wants CLOUDFLARE_AI_GATEWAY_TOKEN.
+    { "binding": "GUARDIAN", "service": "core-guardian", "entrypoint": "GuardianRpc" },
+    // Plain default-export fetcher, for guardian's REST surface
+    // (POST /api/guardian/usage/register). Separate binding because naming an
+    // entrypoint above changes what .fetch() on GUARDIAN resolves to.
+    { "binding": "GUARDIAN_HTTP", "service": "core-guardian" },
+    // Self-binding: the code-mode MCP sandbox (a dynamically-loaded isolate with
+    // NO bindings of its own) calls back into POST /internal/mcp-tool through it.
+    // A service binding, not a public fetch — a Worker fetching its own hostname
+    // is error 1042.
+    { "binding": "SELF", "service": "core-ai-tools" }
   ],
   // Cron maintenance (see src/_worker.ts `scheduled`): every 5 min, reap
   // revisions stuck in queued/running past the timeout and drain the guardian
@@ -86,8 +103,9 @@
   },
   // DO migration history. This MUST match what the deployed Worker has applied —
   // v1 created the full class set (incl. SessionDO), v2 retired the 10 showcase
-  // agents, leaving ChatBroker + NotificationsAgent + SessionDO. Do NOT rewrite
-  // v1/v2 (immutable, already applied); add v3, v4, … additively.
+  // agents, v3 added FolderDO — leaving ChatBroker + NotificationsAgent +
+  // SessionDO + FolderDO. Do NOT rewrite v1/v2/v3 (immutable, already applied or
+  // about to be); add v4, v5, … additively.
   "migrations": [
     {
       "tag": "v1",
@@ -121,6 +139,12 @@
         "ThinkingAgent",
         "SkillsAgent",
       ],
+    },
+    {
+      // ADDITIVE: FolderDO is a NEW class (per-folder realtime channel, W2.4).
+      // v1/v2 are already applied to the deployed Worker and are immutable.
+      "tag": "v3",
+      "new_sqlite_classes": ["FolderDO"],
     },
   ],
   // ---------------------------------------------------------------------------

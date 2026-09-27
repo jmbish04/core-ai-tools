@@ -31,8 +31,9 @@
 
 import { GoogleGenAI } from "@google/genai";
 
+
 import { getGeminiApiKey } from "@/backend/utils/secrets";
-import { NotImplementedError, ProviderError } from "@/backend/core/errors";
+import { classifyProviderError, NotImplementedError, ProviderError } from "@/backend/core/errors";
 import type { ProviderAdapter, ProviderRequest, ProviderResult } from "../dispatch/types";
 
 type InputPart =
@@ -146,6 +147,108 @@ function parseInteraction(interaction: any): ProviderResult {
   return out;
 }
 
+/** Project name core-guardian attributes this Worker's spend to. */
+const GUARDIAN_PROJECT = "core-ai-tools";
+
+/** What one interaction call returned, and how it got there. */
+interface InteractionCall {
+  interaction: any;
+  /** True when core-guardian's router ran the call (and therefore metered it). */
+  viaGuardian: boolean;
+  tokensIn?: number;
+  tokensOut?: number;
+}
+
+/**
+ * Run one `interactions.create` through core-guardian's AI router, which meters,
+ * prices, and spend-breaks the call before it reaches Gemini. Guardian's gateway
+ * mode targets `v1beta/interactions` for google, so the params pass through
+ * unchanged apart from `model`, which guardian merges in itself.
+ *
+ * @returns null when guardian is not bound or cannot serve this call — the caller
+ *   then falls back to the direct SDK rather than failing the generation.
+ * @throws ProviderError when guardian ran the call and the PROVIDER rejected it
+ *   (a real content/auth/rate error, which a fallback would only repeat).
+ */
+async function viaGuardian(env: Env, params: Record<string, unknown>): Promise<InteractionCall | null> {
+  const rpc = env.GUARDIAN as unknown as { run?: (p: unknown) => Promise<unknown> } | undefined;
+  if (typeof rpc?.run !== "function") return null;
+
+  const { model, ...input } = params;
+  let raw: any;
+  try {
+    raw = await rpc.run({
+      project: GUARDIAN_PROJECT,
+      // Required by guardian's runBody (it has no default) — omitting it fails
+      // validation and silently drops the call to the direct-SDK fallback.
+      importance: "medium",
+      provider: "google",
+      model,
+      mode: "gateway",
+      input,
+    });
+  } catch (err) {
+    // Guardian itself is unreachable/misconfigured — not a provider verdict.
+    console.warn(
+      `[guardian] router RPC unavailable, falling back to a direct Gemini call: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return null;
+  }
+
+  if (raw && typeof raw === "object" && "stream" in raw) {
+    throw new ProviderError("core-guardian returned a stream for a non-streaming image call.");
+  }
+
+  // Guardian wraps the provider payload: { status, body: { …, body: <provider json> } }.
+  const outer = (raw?.body ?? raw) as Record<string, unknown> | undefined;
+  const status = Number(raw?.status ?? outer?.status ?? 200);
+  const interaction = (outer?.body ?? outer) as any;
+
+  if (status >= 400) {
+    const detail = typeof interaction === "string" ? interaction : JSON.stringify(interaction ?? {}).slice(0, 400);
+
+    // TWO DIFFERENT 4xx meanings, and they must not be conflated:
+    //
+    //  - 422 "not priceable in the catalog" is guardian saying "I CANNOT METER
+    //    this model", not "you may not spend". Failing closed on it would take
+    //    image generation down over a gap in guardian's price catalog, so we fall
+    //    back to the direct call — which still emits a usage record through
+    //    `usage/register`, exactly as before routing existed. Loud, never silent.
+    //  - anything else (429 breaker trip, budget rejection, provider fault) IS
+    //    guardian's verdict and is surfaced. Never bypass a spend control.
+    if (status === 422 && /not priceable/i.test(detail)) {
+      console.warn(
+        `[guardian] ${String(model)} is not priceable in guardian's catalog (422) — falling back to a direct ` +
+          `Gemini call with usage/register metering. Add pricing for this model id in core-guardian to route it.`,
+      );
+      return null;
+    }
+
+    throw classifyProviderError(`Gemini via core-guardian (${status})`, Object.assign(new Error(detail), { status }));
+  }
+
+  return {
+    interaction,
+    viaGuardian: true,
+    tokensIn: typeof outer?.tokens_in === "number" ? (outer.tokens_in as number) : undefined,
+    tokensOut: typeof outer?.tokens_out === "number" ? (outer.tokens_out as number) : undefined,
+  };
+}
+
+/** Direct SDK call — the fallback when guardian is not available. */
+async function direct(apiKey: string, params: Record<string, unknown>): Promise<InteractionCall> {
+  const ai = new GoogleGenAI({ apiKey });
+  return { interaction: await ai.interactions.create(params as never), viaGuardian: false };
+}
+
+/**
+ * One interaction call: guardian first (metered + spend-broken), direct SDK if
+ * guardian is not bound or not reachable.
+ */
+async function createInteraction(env: Env, apiKey: string, params: Record<string, unknown>): Promise<InteractionCall> {
+  return (await viaGuardian(env, params)) ?? (await direct(apiKey, params));
+}
+
 export const googleImageAdapter: ProviderAdapter = {
   provider: "google",
 
@@ -156,36 +259,47 @@ export const googleImageAdapter: ProviderAdapter = {
         "Gemini generate: GEMINI_API_KEY unresolved (set the binding + value).",
       );
     }
-    const ai = new GoogleGenAI({ apiKey });
-
     let conversationLost = false;
-    let interaction: any;
+    let call: InteractionCall;
     try {
-      interaction = await ai.interactions.create(buildParams(req, { withPrevious: true }) as never);
+      call = await createInteraction(env, apiKey, buildParams(req, { withPrevious: true }));
     } catch (err) {
       if (req.previousInteractionId && isLostInteraction(err)) {
         conversationLost = true;
-        interaction = await ai.interactions.create(buildParams(req, { withPrevious: false }) as never);
+        try {
+          call = await createInteraction(env, apiKey, buildParams(req, { withPrevious: false }));
+        } catch (retryErr) {
+          throw classifyProviderError("Gemini Interactions", retryErr);
+        }
       } else {
-        throw new ProviderError(`Gemini Interactions failed: ${(err as Error)?.message ?? err}`, err);
+        throw classifyProviderError("Gemini Interactions", err);
       }
     }
+    const interaction = call.interaction;
 
     const result = parseInteraction(interaction);
+    if (call.viaGuardian) {
+      result.servedVia = "guardian";
+      result.meteredByGuardian = true;
+      // Guardian reports its own token counts; prefer them when the interaction
+      // payload did not carry usage.
+      result.tokensIn ??= call.tokensIn;
+      result.tokensOut ??= call.tokensOut;
+    }
     if (!result.outputImageBytes) {
       throw new ProviderError("Gemini Interactions returned no image.", { id: interaction?.id });
     }
     if (conversationLost) result.conversationLost = true;
-    // The mask is sent to the model (image part + instruction), so it's applied
-    // natively — not a post-hoc composite. Leave maskEmulated false.
+    // The mask travels as an image part plus a convention instruction, not through
+    // a mask parameter — there isn't one. That is emulation, and the revision says
+    // so rather than claiming a native channel it never used.
+    if (req.maskBase64) result.maskEmulated = true;
     return result;
   },
 
   async understand(env: Env, req: ProviderRequest): Promise<ProviderResult> {
     const apiKey = await getGeminiApiKey(env);
     if (!apiKey) throw new NotImplementedError("Gemini understand: GEMINI_API_KEY unresolved.");
-    const ai = new GoogleGenAI({ apiKey });
-
     // Caption / VQA / detection / segmentation are all prompt-driven text output.
     // thinking_level='minimal' per the docs (improves segmentation). Coordinate
     // conversion (0–1000 → 0–1) for segment masks is handled at the mask boundary.
@@ -195,14 +309,20 @@ export const googleImageAdapter: ProviderAdapter = {
     );
     delete params.response_format; // understanding wants text back, not a forced image.
 
-    let interaction: any;
+    let call: InteractionCall;
     try {
-      interaction = await ai.interactions.create(params as never);
+      call = await createInteraction(env, apiKey, params);
     } catch (err) {
-      throw new ProviderError(`Gemini understand failed: ${(err as Error)?.message ?? err}`, err);
+      throw classifyProviderError("Gemini understand", err);
     }
 
-    const result = parseInteraction(interaction);
+    const result = parseInteraction(call.interaction);
+    if (call.viaGuardian) {
+      result.servedVia = "guardian";
+      result.meteredByGuardian = true;
+      result.tokensIn ??= call.tokensIn;
+      result.tokensOut ??= call.tokensOut;
+    }
     if (result.outputText) {
       const trimmed = result.outputText.trim().replace(/^```(?:json)?\n?|\n?```$/g, "");
       if (trimmed.startsWith("{") || trimmed.startsWith("[")) {

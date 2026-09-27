@@ -102,8 +102,12 @@ describe("registry — authoritative resolution (D1)", () => {
         sessionOverrides: { image_edit: "gemini-3.1-flash-lite-image" },
       }),
     ).toBe("gemini-3.1-flash-lite-image");
-    // falls to the seeded task default
-    expect(await resolveModelId(c.db, { taskKey: "image_edit" })).toBe("gemini-3.1-flash-image");
+    // falls to the seeded task default — Images 2.5 Flare, which (unlike the
+    // Gemini image models) has a NATIVE mask channel, so masked edits are precise
+    // rather than emulated.
+    expect(await resolveModelId(c.db, { taskKey: "image_edit" })).toBe("gpt-image-2.5-flare");
+    // generation stays on Gemini
+    expect(await resolveModelId(c.db, { taskKey: "image_generate" })).toBe("gemini-3.1-flash-image");
   });
 
   it("errors when no model resolves (unknown task, no default)", async () => {

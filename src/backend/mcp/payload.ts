@@ -24,6 +24,8 @@ export interface McpEditPayload {
   status: Revision["status"];
   image_url: string | null;
   thumb_url: string | null;
+  /** Short copyable handle of the OUTPUT image (`img_…`), or null. */
+  public_id: string | null;
   app_url: string;
   compare_url: string;
   parent_revision_id: string | null;
@@ -35,6 +37,7 @@ export interface McpEditPayload {
   /** Additional reference images fed to this edit (ordered base → object → style). */
   references?: Array<{
     image_id: string;
+    public_id: string | null;
     role: "base" | "object" | "style" | null;
     image_url: string | null;
     thumb_url: string | null;
@@ -65,6 +68,7 @@ export async function buildMcpEditPayload(
     status: revision.status,
     image_url: imageUrl,
     thumb_url: thumbUrl,
+    public_id: urls?.publicId ?? null,
     app_url: appUrl,
     compare_url: `${appUrl}&compare=1`,
     parent_revision_id: revision.parentRevisionId,
@@ -86,6 +90,7 @@ export async function buildMcpEditPayload(
     );
     payload.references = refIds.map((id) => ({
       image_id: id,
+      public_id: refUrls.get(id)?.publicId ?? null,
       role: roleMap.get(id) ?? null,
       image_url: refUrls.get(id)?.imageUrl ?? null,
       thumb_url: refUrls.get(id)?.thumbUrl ?? null,

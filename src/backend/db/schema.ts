@@ -39,8 +39,10 @@ export * from "./schemas/chat";
 // core-ai-tools domains
 // ---------------------------------------------------------------------------
 export * from "./schemas/library";
+export * from "./schemas/assets";
 export * from "./schemas/sessions";
 export * from "./schemas/models";
 export * from "./schemas/usage";
 export * from "./schemas/prompts";
 export * from "./schemas/understanding";
+export * from "./schemas/runs";

@@ -1,0 +1,37 @@
+---
+/**
+ * @fileoverview `/compare` — run one intent across several models at once.
+ *
+ * The Worker rewrites the prompt per provider before dispatch and stores what
+ * each model was actually sent, so the comparison is readable rather than a row
+ * of pictures with no explanation.
+ */
+import ShellLayout from "@/layouts/ShellLayout.astro";
+import { CompareWorkspace } from "@/components/compare/CompareWorkspace";
+
+const subnav = [
+  { id: "folders", label: "Folders", href: "/folders" },
+  { id: "assets", label: "Assets", href: "/assets" },
+  { id: "compare", label: "Compare models", href: "/compare" },
+];
+---
+
+<ShellLayout
+  title="Compare models"
+  description="One intent, several models, side by side — with the prompt each one received."
+  section="compare"
+  subnav={subnav}
+  subnavCurrent="compare"
+>
+  <div class="mx-auto w-full max-w-[100rem] px-4 pb-16 sm:px-6">
+    <header class="mb-6">
+      <h2 class="text-foreground text-lg font-semibold">Compare models</h2>
+      <p class="text-muted-foreground mt-1 max-w-2xl text-sm">
+        Say what you want once. It runs on every model you pick at the same time, and each
+        pane shows the picture, the time, the cost and the exact prompt that model was
+        given — because the prompt is usually why one came out better.
+      </p>
+    </header>
+    <CompareWorkspace client:load />
+  </div>
+</ShellLayout>
