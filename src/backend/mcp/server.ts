@@ -92,7 +92,7 @@ const MCP_PUBLIC_HOST = "core-ai-tools.hacolby.workers.dev";
 
 const SESSION_NOTE = "Session-scoped; results appear in the web UI in realtime.";
 
-interface ToolDef {
+export interface ToolDef {
   description: string;
   schema: z.ZodTypeAny;
   handler: (ctx: CoreContext, args: Record<string, unknown>, host: string) => Promise<unknown>;
@@ -681,8 +681,13 @@ const CODE_MODE_TOOLS: Record<string, ToolDef> = {
   },
 };
 
-/** Every dispatchable tool: the domain tools plus the code-mode trio. */
-const ALL_TOOLS: Record<string, ToolDef> = { ...TOOLS, ...CODE_MODE_TOOLS };
+/**
+ * Every dispatchable tool: the domain tools plus the code-mode trio. Exported so
+ * the folder agent can expose the SAME tools to a model without a second
+ * registry — an agent that edits folders differently from the MCP surface is two
+ * products.
+ */
+export const ALL_TOOLS: Record<string, ToolDef> = { ...TOOLS, ...CODE_MODE_TOOLS };
 
 /**
  * Dispatch one tool by name: validate, log the request to `mcp_logs` BEFORE

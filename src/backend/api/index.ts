@@ -49,6 +49,7 @@ import { revisionsRouter } from "./routes/revisions";
 import { libraryRouter } from "./routes/library";
 import { modelsRouter } from "./routes/models";
 import { promptsRouter } from "./routes/prompts";
+import { agentRouter } from "./routes/agent";
 import { runsRouter } from "./routes/runs";
 import { videoRouter } from "./routes/video";
 
@@ -123,7 +124,7 @@ app.use("/api/admin/*", authMiddleware);
 // `Bearer <WORKER_API_KEY>` (see authMiddleware). These carry real prompts,
 // sessions, and library images, so they are not left public. Registered before
 // the routers are mounted (Hono applies middleware in registration order).
-for (const p of ["sessions", "revisions", "library", "models", "prompts", "video", "masks", "ai", "assets", "runs"]) {
+for (const p of ["sessions", "revisions", "library", "models", "prompts", "video", "masks", "ai", "assets", "runs", "agent"]) {
   app.use(`/api/${p}`, authMiddleware);
   app.use(`/api/${p}/*`, authMiddleware);
 }
@@ -168,6 +169,7 @@ app.route("/", assetsRouter);
 app.route("/", modelsRouter);
 app.route("/", promptsRouter);
 app.route("/", runsRouter);
+app.route("/", agentRouter);
 app.route("/", videoRouter);
 
 // ---------------------------------------------------------------------------
