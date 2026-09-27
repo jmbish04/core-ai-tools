@@ -58,7 +58,7 @@ export const siteConfig: SiteConfig = {
     {
       label: "Developer",
       items: [
-        { href: "/mcp-setup", label: "MCP Setup" },
+        { href: "/connect", label: "MCP Setup" },
         { href: "/openapi.json", label: "OpenAPI" },
         { href: "/scalar", label: "Scalar" },
         { href: "/swagger", label: "Swagger" },

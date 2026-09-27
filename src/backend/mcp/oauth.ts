@@ -102,6 +102,10 @@ export function buildOAuthHandler(base: ExportedHandler<Env>): OAuthProvider<Env
   } as unknown as ExportedHandler<Env>;
 
   oauthOptions = {
+    // PREFIX MATCH, not exact: every path starting with "/mcp" is routed into the
+    // MCP handler. A page at /mcp-setup was therefore unreachable — it answered
+    // "MCP endpoint — POST JSON-RPC" to a browser. The setup page now lives at
+    // /connect, and nothing else may be added under /mcp that is not the protocol.
     apiRoute: "/mcp",
     apiHandler: { fetch: (request: Request, env: Env) => handleMcp(request, env) } as never,
     defaultHandler: defaultHandler as never,

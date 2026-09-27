@@ -219,6 +219,52 @@ and landing page are reshaped, and only in Phase 10.
     hand-rolled as specified, this gate is likely moot — do not re-litigate, just confirm we
     don't import `useAgent`.
 
+## Wave 1 schema (W1.4–W1.6) — migration `0015_condemned_magma.sql` (local only so far)
+
+**⛔ `0015` is NOT yet applied remote.** It is purely additive (2 new tables, 10
+`ALTER TABLE ADD COLUMN`, 1 unique index) — apply it, never rewrite it.
+
+- **W1.4 nested folders + inheritable settings.** `library_folders` gained
+  `default_prompt`, `context_text`, `use_case`, `preferred_models` (JSON array),
+  `approval_policy`. **All nullable; NULL means "inherit from the nearest ancestor
+  that sets it", never "off".** Nesting itself was already unlimited-depth, and
+  `core/library/folders.ts#moveFolder` already carries the ONE cycle check — do not
+  add a second. `core/folders/settings.ts` adds `resolveSettings(ctx, folderId)`
+  (one `WITH RECURSIVE` query, depth-capped at 64, returns `{value, fromFolderId,
+  inherited}` per setting plus `ancestorPath`) and `updateFolderSettings` (passing
+  `null` CLEARS a setting, which is the only way to re-enable inheritance).
+  `preferredModels` is **advisory** — `task_model_defaults` stays authoritative.
+- **W1.5 rich image metadata.** `library_images` gained `public_id` (unique),
+  `title`, `usage_instructions`, `context_text`, `role` (`base|reference|inject`).
+  `folder_id` already existed. **`public_id` = `img_` + 10 base-32 chars (no i/l/o/u)**
+  — the short handle a user copies and pastes into a prompt. Minted by the column
+  `$defaultFn` (`shortPublicId()` in the schema file), so no call site has to
+  remember it; rows predating the column are NULL (SQLite allows many NULLs in a
+  unique index) and `backfillPublicIds(ctx)` fills them. Lookup:
+  `findImageByPublicId` / `requireImageByPublicId` (case-insensitive, trims).
+  Writes: `updateImageMetadata` (whitespace-only clears to NULL).
+  `library_images.role` is the library-level DEFAULT; `session_images.role`
+  (`base|object|style`) still overrides per session — different enums on purpose.
+- **W1.6 assets + lineage.** New `assets/` domain: `assets` (one row per curated
+  reusable source image, backed by exactly one `library_images` row, `archived_at`
+  only — never hard-deleted) and `asset_lineage`. **Promotion COPIES the image row**
+  (same `cf_image_id`, new row id, fresh `public_id`) and `promoted_from_image_id`
+  is the trace back — that separation is what keeps iterations produced from the
+  ASSET distinct from iterations produced from the original image elsewhere.
+  `asset_lineage` is stored **transitively closed** (asset → every descendant
+  image), so the asset page is one indexed read, not a tree walk.
+  **The whole lineage mechanism is ONE rule, in `markSucceeded`:** the output image
+  inherits every asset its INPUT image descends from. Because
+  `revisions.input_image_id = parent.output_image_id ?? parent.input_image_id`,
+  that covers forks (the fork's input IS the forked-from node's output) and retries
+  (same parent → same input) with no tree-shape awareness. Do not replace it with a
+  tree walk. Functions: `propagateLineage`, `assetIdsForImage`, `recordLineage`
+  (idempotent via `uniq_asset_lineage`), `listAssetIterations` (oldest-first, carries
+  `folderId`/`sessionUuid` so the SURFACE groups — core returns flat rows).
+- **Not yet exposed**: no REST route and no MCP tool touches any of this. See the
+  handback notes for the endpoint/tool surface it needs.
+- Tests: `test/folders-assets.test.ts` (20). Suite total 96.
+
 ## Secrets (Secrets Store) — access convention
 
 - **All secret reads go through `src/backend/utils/secrets.ts`.** Never `env.X.get()` at a call
@@ -651,3 +697,93 @@ Gemini keeps `image_generate`. Rationale: Gemini image models have NO mask chann
 (`mask_emulated_only`), OpenAI does — so masked/precision edits are native rather than
 emulated. The authoritative switch is D1, not `default_for`:
 `PUT /api/models/tasks/image_edit {"modelId":"…"}`.
+
+# The folder/asset/agent platform (Waves 1–4, 2026-09-26)
+
+The product this repo is now: a folder-organised image workspace. Images live in nested
+folders, an agent works beside the tree and edits it through the same tools an MCP client
+uses, and every image made from an asset traces back to it.
+
+## Folders are the project
+
+There is no `projects` table and there should not be one. **A project IS a folder with
+settings.** The onboarding wizard (`/projects/new`) ends by creating a folder; the project
+hero shows that folder's settings. Anything that wants "a project" wants a folder.
+
+## Settings inherit, and provenance is part of the answer
+
+Five per-folder settings (default prompt, context, use case, preferred models, approval
+policy) resolve up the tree to the nearest ancestor that sets one. `resolveSettings`
+returns `{ value, fromFolderId, inherited }` per setting in ONE recursive CTE — the
+provenance is not decoration: a prompt inherited from three folders up looks identical to
+a local one, and a user who cannot tell will edit the wrong folder.
+
+**`null` means "clear this and inherit again"; absent means "leave it alone".** Every
+settings schema is `.nullable().optional()`, never `.partial()`, and only `undefined` is
+stripped before core decides with `"key" in input`. Get this wrong and a caller who
+mentions one field silently clears the other four.
+
+## Events are emitted from CORE, never from route handlers
+
+`core/library/notify.ts` wraps the FolderDO emit. Folders are mutated from REST, from MCP
+and from the agent; emitting per surface is three places that drift, and the agent-driven
+path is the one a user is watching live. Emission NEVER fails a mutation — the D1 write
+has already committed, so a fan-out failure costs a refresh while a throw would undo work
+the caller was told succeeded.
+
+`moveFolder` and `moveImage` read the row BEFORE the write: the updated row carries only
+the destination, so the source folder would otherwise never hear it lost a child.
+
+## The agent is routed through core-guardian, and refuses to be otherwise
+
+`ai/agent/folder-agent.ts` points the OpenAI Agents SDK at guardian's
+`/v1/chat/completions` over the `GUARDIAN_HTTP` service binding. If `AI_GATEWAY_TOKEN` is
+unresolvable it THROWS rather than falling back to a direct provider call — a fallback
+would work, cost money, and escape budget and breaker checks. Model ids sent to it are
+guardian's routing aliases (`auto`/`best`/`budget`/`cheapest`), not pinned models.
+
+**Its tools are `ALL_TOOLS` from the MCP server**, a deliberate subset (15 of 49). Never
+give the agent a private tool set — an agent that edits folders differently from the MCP
+surface is two products.
+
+**Tool outcomes are recorded where they are known**, inside the tool wrapper, because
+`callToolByName` returns a tool error as CONTENT rather than throwing. A trace derived
+from the SDK's item stream marks every call successful — a flag structurally incapable of
+being false.
+
+## Multi-model runs rewrite the prompt per model
+
+`core/runs/prompt.ts#buildPromptFor` is pure and tested and branches on CAPABILITY FLAGS,
+never a model-id list. Each result row stores `prompt_sent` — the exact text that model
+received — which is what makes a comparison readable. A run has NO status column: it
+derives from its results, so there is no second copy to drift.
+
+**Gemini image models are `mask_inpainting: false, mask_emulated_only: true`.** The
+Interactions API has no mask parameter; the adapter sends the mask as an image part plus a
+convention instruction, and the revision is flagged `mask_emulated`. The catalog used to
+claim a native channel while its own notes said otherwise — do not "fix" it back.
+
+## Routing traps that have already cost time
+
+- **`apiRoute: "/mcp"` in the OAuth provider is a PREFIX match.** A page at `/mcp-setup`
+  answered "MCP endpoint — POST JSON-RPC" to browsers. The setup page is now `/connect`.
+  Never add a page under `/mcp` that is not the protocol.
+- **The shadcn CLI writes outside the configured alias** (`src/components`, `src/hooks`)
+  on nearly every install, and ships `from "cn"` imports this repo cannot resolve.
+  Consolidate into `src/frontend/**` and rewrite those imports after every `add`.
+- **A 404 immediately after adding a route is usually a stale deploy.** Re-deploy and
+  re-check before debugging the route.
+- **TypeScript 7 removed `baseUrl`.** `tsc --noEmit` was failing at the CONFIG level, so
+  it was not a gate at all. Paths are now relative; keep them that way.
+
+## Frontend shape
+
+`ShellLayout` (ReUI `app-shell-22`, dark-first) wraps every product route. Screens:
+`/folders` (tree + contents + settings + docked agent + project hero), `/assets` and
+`/assets/[id]` (asset hero + per-folder evolution timelines), `/compare`, `/projects/new`,
+`/connect`.
+
+Evolution history is derived from `revLabel`'s dotted notation, keyed by **session AND
+label** (labels are minted per session, so `rev1` in two sessions is two nodes), with
+missing intermediates INFERRED rather than collapsed — cousins promoted to siblings is the
+flattening bug that derivation exists to avoid.
