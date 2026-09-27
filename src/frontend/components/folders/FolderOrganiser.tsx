@@ -24,6 +24,7 @@ import type { FolderNode, FolderRow, ImageRow, ResolvedFolderSettings } from "./
 import { FolderSettingsCard } from "./FolderSettingsCard";
 import { FolderContents } from "./FolderContents";
 import { FolderTree } from "./FolderTree";
+import { FolderAgentPanel } from "./FolderAgentPanel";
 
 /** Read the folder id out of the URL so a reload lands on the same folder. */
 function folderFromLocation(): string | null {
@@ -136,6 +137,12 @@ export function FolderOrganiser() {
     };
   }, [selected, loadFolders, loadFolderBody]);
 
+  /** Everything the agent (or a person) changes funnels through one refresh. */
+  const refreshAll = useCallback(() => {
+    void loadFolders();
+    void loadFolderBody(selected);
+  }, [loadFolders, loadFolderBody, selected]);
+
   const tree = useMemo<FolderNode[]>(() => buildFolderTree(folders ?? []), [folders]);
   const selectedFolder = folders?.find((f) => f.id === selected) ?? null;
 
@@ -148,7 +155,7 @@ export function FolderOrganiser() {
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)] xl:grid-cols-[minmax(0,19rem)_minmax(0,1fr)_minmax(0,20rem)]">
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)] xl:grid-cols-[minmax(0,17rem)_minmax(0,1fr)_minmax(0,23rem)]">
       <FolderTree
         nodes={tree}
         loading={folders === null}
@@ -157,20 +164,26 @@ export function FolderOrganiser() {
         onChanged={loadFolders}
       />
 
-      <FolderContents
-        folder={selectedFolder}
-        images={images}
-        live={live}
-        onChanged={() => void loadFolderBody(selected)}
-      />
-
-      <div className="xl:sticky xl:top-3 xl:self-start">
+      <div className="min-w-0 space-y-4">
+        <FolderContents
+          folder={selectedFolder}
+          images={images}
+          live={live}
+          onChanged={() => void loadFolderBody(selected)}
+        />
         <FolderSettingsCard
           folderId={selected}
           folders={folders ?? []}
           settings={settings}
           onSaved={() => void loadFolderBody(selected)}
         />
+      </div>
+
+      {/* The agent sits where the user is already looking, so they watch the tree
+          change while they talk. Below xl it moves under the folder rather than
+          competing for width. */}
+      <div className="xl:sticky xl:top-3 xl:self-start">
+        <FolderAgentPanel folder={selectedFolder} onChanged={refreshAll} />
       </div>
     </div>
   );
