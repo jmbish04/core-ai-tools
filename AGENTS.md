@@ -916,16 +916,44 @@ flattening bug that derivation exists to avoid.
   claiming the setting was configured — strictly worse than leaving it out.
   Two real ways to set it, both Cloudflare-side:
   - Dashboard: Workers & Pages → the Worker → Settings → Build → Build cache → Enable.
+  - MCP (preferred): the Cloudflare API connector's `workers_cicd_configure` with
+    `build_caching_enabled`. Account state goes through the MCP per the ecosystem
+    briefing, and it works in sandboxes that cannot run a shell. Measured 2026-09-28
+    it returned a malformed result that failed MCP schema validation, hence the
+    fallback below; `search`/`execute` on the same server were fine.
   - API: `PATCH /accounts/{account_id}/builds/triggers/{trigger_uuid}` with
     `{"build_caching_enabled": true}`. Wrapped as **`node scripts/enable-build-cache.mjs`**
-    (`--dry-run` / `--disable` / `--worker <name>`), which resolves the trigger itself and
-    reads `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` from the environment — supply
-    them from the `tokens` CLI, never hardcoded.
+    (`--dry-run` / `--disable` / `--worker <name>`), which reads `CLOUDFLARE_API_TOKEN` +
+    `CLOUDFLARE_ACCOUNT_ID` from the environment — supply them from the `tokens` CLI,
+    never hardcoded. **Two traps it exists to encode, both measured 2026-09-28 and both
+    silent:**
+    - **Builds endpoints key off the Worker's immutable TAG, never its name** — the name
+      returns "Resource not found", which reads as "no CI/CD configured" rather than as a
+      bug. Resolve it from `GET /accounts/{id}/workers/scripts`, field **`tag`** (NOT
+      `etag` — a different value on the same row; `core-ai-tools` is
+      `079fa83f09934c06916d0bee1ea1b07a`).
+    - **`/builds/*` needs a USER-scoped token. An account-scoped one returns 401 / 12006
+      "Invalid token" there while working fine elsewhere** — so the credential looks
+      healthy and fails only on this surface. Verified: `/workers/scripts` returned 200
+      with 218 scripts on the same token that 12006'd on
+      `/builds/workers/{tag}/triggers`. The script runs the script lookup first precisely
+      so it can tell the two apart, and exits 3 saying "account-scoped" rather than
+      sending anyone to rotate a working key. Both branches are covered by
+      `scripts/__tests__/enable-build-cache.test.mjs` (a stub API, run with `node`, not in
+      the workerd suite), planted by reintroducing each bug.
   Nothing in the repo needs to change for the cache to be effective once on — it auto-detects
   pnpm (caches `.pnpm-store`) and Astro (caches `node_modules/.astro`) from `package.json`.
   Keep it that way: setting a custom pnpm `store-dir` in an `.npmrc` would silently opt the
   project out of dependency caching. Cache is purged 7 days after last read; 10 GB per
-  project. (Unrelated near-miss when searching the docs: `cache: { enabled: true }` IS a real
+  project.
+- **Smart Placement is confirmed LIVE, not just configured.** `GET /accounts/{id}/workers/
+  scripts` carries `placement`, `placement_mode` and `placement_status` per script, so the
+  config claim is checkable against the platform rather than taken on trust. Measured
+  2026-09-28 for `core-ai-tools`: `placement: {mode: "smart", status: "SUCCESS",
+  last_analyzed_at: …}`. A `status` that is not `SUCCESS` (e.g. `INSUFFICIENT_INVOCATIONS`)
+  means the mode is set and placement is NOT actually happening — check the status, never
+  just the mode. That same row's `modified_on` is also the cheapest proof a Workers Builds
+  deploy really landed. (Unrelated near-miss when searching the docs: `cache: { enabled: true }` IS a real
   `wrangler.jsonc` block, but it is **Workers Caching** — runtime response caching in front of
   every entrypoint. Do not reach for it thinking it is the build cache; in front of this
   Worker's session-cookie auth gate it would need its own design pass.)
