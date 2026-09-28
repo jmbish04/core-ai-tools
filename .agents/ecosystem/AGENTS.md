@@ -192,6 +192,7 @@ gh-tools agents-audit --limit=100 --all      # more, including forks
 gh-tools agents-rollout                      # names what it WOULD install, writes nothing
 gh-tools agents-rollout --yes                # installs into every repo missing it
 gh-tools agents-rollout --only=jmbish04/foo --yes
+gh-tools agents-rollout --refresh --yes      # after a template fix: rewrite it everywhere
 ```
 
 The audit reports **three** columns, because any two of them can be true while the
@@ -199,6 +200,10 @@ thing is still broken: `workflow` (the file is committed), `secret`
 (`COLBY_ECOSYSTEM_TOKEN` is set — without it every run 404s), and `synced`
 (`.agents/ecosystem/` exists, so the Action has actually run at least once). A repo
 counts as installed only when all three say yes.
+
+`--refresh` is how a fix to `templates/agents-sync.yml` reaches repos that already
+have the old copy — without it, rollout only touches repos missing the workflow or
+the secret, and a template bug stays frozen everywhere it already shipped.
 
 **`agents-rollout` writes nothing without `--yes`.** Run it bare first and read the
 list: it commits to each repo's default branch and sets a secret on each, across as
