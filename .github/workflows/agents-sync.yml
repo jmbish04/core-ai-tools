@@ -68,6 +68,13 @@ jobs:
           # must not silently defeat the sync. Measured 2026-09-28 on agentic-inbox and
           # core-github-api: both runs died here with "paths are ignored by .gitignore".
           git add -A -f .agents AGENTS.md
+          # pull-agents also writes scripts/, and lists everything it owns in MANAGED.
+          # `git add -A scripts` would sweep in whatever else the repo keeps there, so
+          # the manifest is the precise list — and pull-agents drops any line that is
+          # not a real path, because one stray line here fails the run in every repo.
+          if [ -s .agents/ecosystem/MANAGED ]; then
+            tr '\n' '\0' < .agents/ecosystem/MANAGED | xargs -0 git add -f --
+          fi
           if git diff --cached --quiet; then
             echo "briefings already current"
             exit 0
