@@ -18,13 +18,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { apiGet } from "@/lib/api";
 import { folderSettingsPath } from "@/lib/endpoints";
 import type { FolderRow, ResolvedFolderSettings } from "@/components/folders/types";
+import type { ClonedSettings } from "./types";
 
-/** The three inheritable text settings, resolved. */
-export interface ClonedSettings {
-  defaultPrompt: string | null;
-  contextText: string | null;
-  useCase: string | null;
-}
+export type { ClonedSettings };
 
 export function CloneSettingsPicker({
   folders,

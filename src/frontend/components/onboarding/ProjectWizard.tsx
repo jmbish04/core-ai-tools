@@ -36,13 +36,13 @@ import { AssetPickerDialog } from "@/components/assets/AssetPickerDialog";
 import { thumbOf } from "@/components/assets/types";
 import type { AssetRow } from "@/components/assets/types";
 import { apiGet, apiSend } from "@/lib/api";
-import { LIBRARY_FOLDERS_PATH } from "@/lib/endpoints";
+import { LIBRARY_FOLDERS_PATH, assetPlacePath } from "@/lib/endpoints";
 import type { FolderRow } from "@/components/folders/types";
 import { StagedImageList } from "./StagedImageList";
 import { OnboardingCopilot } from "./OnboardingCopilot";
 import type { SettingsProposal } from "./OnboardingCopilot";
 import { CloneSettingsPicker } from "./CloneSettingsPicker";
-import type { ClonedSettings } from "./CloneSettingsPicker";
+import { UnresolvedCloneError, applyProposalToDraft, settingsToWrite } from "./settings";
 import {
   EMPTY_DRAFT,
   SCENARIOS,
@@ -70,8 +70,8 @@ export function ProjectWizard() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [restored, setRestored] = useState(false);
-  /** The clone source's resolved settings, held until the project is created. */
-  const [cloned, setCloned] = useState<ClonedSettings | null>(null);
+  /** Set when creation failed AFTER the folder existed, so the error can link to it. */
+  const [createdFolderId, setCreatedFolderId] = useState<string | null>(null);
 
   useEffect(() => {
     const saved = loadDraft();
@@ -91,11 +91,23 @@ export function ProjectWizard() {
     [folders, draft.parentFolderId],
   );
 
-  const cloneSourceId = draft.settingsSource.kind === "clone" ? draft.settingsSource.folderId : null;
+  const source = draft.settingsSource;
+  const cloneSourceId = source.kind === "clone" ? source.folderId : null;
   const cloneSourceName = folders.find((f) => f.id === cloneSourceId)?.name ?? null;
+  /** While a clone source is chosen, all three settings come from it. */
+  const cloning = source.kind === "clone";
 
+  // Step 4 asks for a use case, and a clone supplies one — so requiring the
+  // tiles while cloning is a dead end. It used to be worse than a dead end:
+  // clicking a tile set `settingsSource: custom`, which silently discarded the
+  // clone the user had just chosen, and the tiles were mandatory to advance. The
+  // two ways of answering the same question now exclude each other explicitly.
   const canAdvance =
-    step === 1 ? draft.name.trim().length > 0 : step === 4 ? draft.useCase.length > 0 : true;
+    step === 1
+      ? draft.name.trim().length > 0
+      : step === 4
+        ? cloning || draft.useCase.length > 0
+        : true;
 
   /**
    * Apply a copilot proposal to the draft.
@@ -105,13 +117,8 @@ export function ProjectWizard() {
    * `null`. An absent key is left alone, which is why each field is checked with
    * `in` rather than for truthiness.
    */
-  const applyProposal = (proposal: SettingsProposal) => {
-    const next: Partial<OnboardingDraft> = { settingsSource: { kind: "custom" } };
-    if ("defaultPrompt" in proposal) next.defaultPrompt = proposal.defaultPrompt ?? "";
-    if ("contextText" in proposal) next.contextText = proposal.contextText ?? "";
-    if ("useCase" in proposal && proposal.useCase) next.useCase = proposal.useCase;
-    patch(next);
-  };
+  const applyProposal = (proposal: SettingsProposal) =>
+    setDraft((d) => applyProposalToDraft(d, proposal));
 
   /**
    * Create the project: one folder, then its settings, then move every staged
@@ -119,34 +126,29 @@ export function ProjectWizard() {
    * applied project cannot exist.
    */
   const create = async () => {
+    // Checked BEFORE the folder is created: an unresolved clone is the user's
+    // mistake to correct, not a half-made project to clean up.
+    try {
+      settingsToWrite(draft, cloneSourceName);
+    } catch (err) {
+      if (err instanceof UnresolvedCloneError) {
+        setError(err.message);
+        return;
+      }
+      throw err;
+    }
+
     setCreating(true);
     setError(null);
+    let folderId: string | null = null;
     try {
       const folder = await apiSend<FolderRow>("POST", LIBRARY_FOLDERS_PATH, {
         name: draft.name.trim(),
         parentFolderId: draft.parentFolderId,
       });
+      folderId = folder.id;
 
-      // Cloning writes the SOURCE's resolved settings; "custom" writes what the
-      // user typed or the copilot settled; "inherit" writes nothing at all, so
-      // every setting keeps resolving up the tree.
-      const settings =
-        draft.settingsSource.kind === "clone" && cloned
-          ? {
-              defaultPrompt: cloned.defaultPrompt,
-              contextText: cloned.contextText,
-              useCase: cloned.useCase,
-            }
-          : draft.settingsSource.kind === "custom"
-            ? {
-                defaultPrompt: draft.defaultPrompt.trim() || null,
-                contextText:
-                  [draft.contextText.trim(), draft.scenario && `Scenario: ${draft.scenario}`]
-                    .filter(Boolean)
-                    .join("\n") || null,
-                useCase: draft.useCase || null,
-              }
-            : null;
+      const settings = settingsToWrite(draft, cloneSourceName);
 
       if (settings) {
         await apiSend("PUT", `${LIBRARY_FOLDERS_PATH}/${folder.id}/settings`, settings);
@@ -155,7 +157,7 @@ export function ProjectWizard() {
       // Chosen assets are COPIED into the project (the asset itself stays put),
       // and staged uploads are moved, each keeping the role the user gave it.
       for (const asset of draft.assets) {
-        await apiSend("POST", `assets/${asset.id}/place`, { folderId: folder.id });
+        await apiSend("POST", assetPlacePath(asset.id), { folderId: folder.id });
       }
       for (const img of draft.images) {
         await apiSend("POST", `library/images/${img.imageId}/move`, { folderId: folder.id });
@@ -170,7 +172,16 @@ export function ProjectWizard() {
       clearDraft();
       window.location.href = `/folders?folder=${folder.id}`;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create the project.");
+      const message = err instanceof Error ? err.message : "Could not create the project.";
+      // The folder is created first, so a later failure leaves a real project
+      // behind. Saying only "could not create" invites a retry that makes a
+      // second one — send the user to what exists instead.
+      setError(
+        folderId
+          ? `${message} The project folder was created, but filling it did not finish. Open it and add what is missing rather than creating it again.`
+          : message,
+      );
+      setCreatedFolderId(folderId);
       setCreating(false);
     }
   };
@@ -210,7 +221,7 @@ export function ProjectWizard() {
             onClick={() => {
               clearDraft();
               setDraft(EMPTY_DRAFT);
-              setCloned(null);
+              setCreatedFolderId(null);
               setRestored(false);
               setStep(1);
             }}
@@ -306,17 +317,19 @@ export function ProjectWizard() {
         </StepperContent>
 
         <StepperContent value={4} className="space-y-6">
-          <fieldset className="space-y-2">
+          <fieldset className="space-y-2" disabled={cloning}>
             <legend className="text-foreground text-sm font-medium">What should happen here?</legend>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className={`grid gap-2 sm:grid-cols-2 ${cloning ? "opacity-50" : ""}`}>
               {USE_CASES.map((u) => (
                 <button
                   key={u.id}
                   type="button"
                   onClick={() => patch({ useCase: u.id, settingsSource: { kind: "custom" } })}
-                  aria-pressed={draft.useCase === u.id}
+                  aria-pressed={!cloning && draft.useCase === u.id}
                   className={`border-border rounded-md border p-3 text-left transition-colors ${
-                    draft.useCase === u.id ? "border-primary bg-accent/50" : "hover:bg-accent/40"
+                    !cloning && draft.useCase === u.id
+                      ? "border-primary bg-accent/50"
+                      : "hover:bg-accent/40"
                   }`}
                 >
                   <span className="text-foreground block text-sm font-medium">{u.label}</span>
@@ -324,6 +337,12 @@ export function ProjectWizard() {
                 </button>
               ))}
             </div>
+            {cloning ? (
+              <p className="text-muted-foreground text-xs">
+                The use case comes from {cloneSourceName ?? "the project you are cloning"}. Clear
+                the source below to choose one here.
+              </p>
+            ) : null}
           </fieldset>
 
           <fieldset className="space-y-2">
@@ -352,16 +371,26 @@ export function ProjectWizard() {
               sourceFolderId={cloneSourceId}
               onSelect={(folderId) =>
                 patch({
-                  settingsSource: folderId ? { kind: "clone", folderId } : { kind: "inherit" },
+                  settingsSource: folderId
+                    ? { kind: "clone", folderId, settings: null }
+                    : { kind: "inherit" },
                 })
               }
-              onResolved={setCloned}
+              // The resolved settings go INTO the draft, so they survive a save
+              // and restore and `create()` has everything it needs in one place.
+              onResolved={(settings) =>
+                setDraft((d) =>
+                  d.settingsSource.kind === "clone"
+                    ? { ...d, settingsSource: { ...d.settingsSource, settings } }
+                    : d,
+                )
+              }
             />
           </div>
 
-          {cloneSourceId ? (
+          {cloning ? (
             <p className="text-muted-foreground text-xs">
-              Cloning from {cloneSourceName ?? "another project"}. The two fields below are
+              Cloning from {cloneSourceName ?? "another project"}. Everything above and below is
               ignored while a source is chosen — clear it to set your own.
             </p>
           ) : null}
@@ -416,18 +445,27 @@ export function ProjectWizard() {
                 ["Images", `${draft.images.length}`],
                 [
                   "Settings",
-                  draft.settingsSource.kind === "clone"
-                    ? `Cloned from ${cloneSourceName ?? "another project"}`
-                    : draft.settingsSource.kind === "custom"
+                  // A clone whose settings never resolved says so here rather
+                  // than claiming a clone that `create()` would refuse to write.
+                  source.kind === "clone"
+                    ? source.settings
+                      ? `Cloned from ${cloneSourceName ?? "another project"}`
+                      : `Could not read ${cloneSourceName ?? "that project"}'s settings — go back and pick again`
+                    : source.kind === "custom"
                       ? "Set on this project"
                       : `Inherited from ${parentName}`,
                 ],
-                ["Use case", USE_CASES.find((u) => u.id === draft.useCase)?.label ?? "—"],
+                [
+                  "Use case",
+                  source.kind === "clone"
+                    ? (source.settings?.useCase ?? "—")
+                    : (USE_CASES.find((u) => u.id === draft.useCase)?.label ?? "—"),
+                ],
                 ["Scenario", SCENARIOS.find((s) => s.id === draft.scenario)?.label ?? "—"],
                 [
                   "Prompt",
-                  draft.settingsSource.kind === "clone"
-                    ? (cloned?.defaultPrompt ?? "—")
+                  source.kind === "clone"
+                    ? (source.settings?.defaultPrompt ?? "—")
                     : draft.defaultPrompt.trim() || `Inherited from ${parentName}`,
                 ],
               ] as [string, string][]
@@ -439,7 +477,19 @@ export function ProjectWizard() {
             ))}
           </dl>
 
-          {error ? <p className="text-destructive-foreground text-sm">{error}</p> : null}
+          {error ? (
+            <div className="space-y-2">
+              <p className="text-destructive-foreground text-sm">{error}</p>
+              {createdFolderId ? (
+                <a
+                  href={`/folders?folder=${createdFolderId}`}
+                  className="text-foreground text-sm font-medium underline underline-offset-4"
+                >
+                  Open the project that was created &rarr;
+                </a>
+              ) : null}
+            </div>
+          ) : null}
         </StepperContent>
       </StepperPanel>
 

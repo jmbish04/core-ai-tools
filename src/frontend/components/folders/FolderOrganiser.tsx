@@ -200,6 +200,7 @@ export function FolderOrganiser({
             folders={folders ?? []}
             settings={settings}
             images={images}
+            imagesError={bodyError}
           />
         ) : null}
         <FolderContents

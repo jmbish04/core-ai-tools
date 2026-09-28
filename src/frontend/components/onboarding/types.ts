@@ -26,10 +26,29 @@ export interface StagedImage {
   note: string;
 }
 
-/** Where a new project's settings come from. */
+/** The three inheritable text settings, already resolved on the source folder. */
+export interface ClonedSettings {
+  defaultPrompt: string | null;
+  contextText: string | null;
+  useCase: string | null;
+}
+
+/**
+ * Where a new project's settings come from.
+ *
+ * The clone variant carries the RESOLVED settings, not just the folder id. They
+ * used to live in component state beside the draft, which meant a draft saved on
+ * step 4 and restored later had a clone source with nothing behind it: `create()`
+ * skipped the settings PUT entirely and silently, while the review step still
+ * said "Cloned from X". Anything `create()` needs belongs in the draft, because
+ * the draft is the thing that survives a reload.
+ *
+ * `settings: null` means "chosen but not resolved yet" — `create()` refuses
+ * rather than quietly writing nothing.
+ */
 export type SettingsSource =
   | { kind: "inherit" }
-  | { kind: "clone"; folderId: string }
+  | { kind: "clone"; folderId: string; settings: ClonedSettings | null }
   | { kind: "custom" };
 
 export interface OnboardingDraft {

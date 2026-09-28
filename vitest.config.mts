@@ -46,6 +46,10 @@ export default defineConfig(async () => {
       alias: [
         { find: /^@\/backend\/(.*)$/, replacement: path.resolve(__dirname, "src/backend/$1") },
         { find: /^@\/lib\/(.*)$/, replacement: path.resolve(__dirname, "src/frontend/lib/$1") },
+        {
+          find: /^@\/components\/(.*)$/,
+          replacement: path.resolve(__dirname, "src/frontend/components/$1"),
+        },
       ],
     },
     plugins: [
