@@ -7,6 +7,11 @@ dist/
 # dependencies
 node_modules/
 
+# Claude Code's local git worktrees — a nested checkout of this same repo, not
+# project content. `EnterWorktree` puts them here, so without this every session
+# that uses one leaves the main checkout looking dirty.
+.claude/worktrees/
+
 # logs
 npm-debug.log*
 yarn-debug.log*
