@@ -1,13 +1,23 @@
 ---
-import BaseLayout from "@/layouts/BaseLayout.astro";
+/**
+ * @fileoverview `/sessions` — every editing session.
+ *
+ * A session is one image's edit history: a tree of revisions, retries grouped
+ * as attempts of the same edit. Resume one, or watch new revisions arrive live.
+ */
+import ShellLayout from "@/layouts/ShellLayout.astro";
 import { SessionsList } from "@/components/sessions/SessionsList";
+import { shellNavFor } from "@/lib/nav";
 ---
 
-<BaseLayout
-  title="Sessions — core-ai-tools"
+<ShellLayout
+  title="Sessions"
   description="Every editing session — resume one, or watch new revisions arrive live."
+  {...shellNavFor(Astro.url.pathname)}
 >
-  <main class="container mx-auto max-w-7xl px-4 py-8">
+  {/* No page header: the island renders its own title and stats. Two of them
+      is what the folder hero and contents header did, one level up. */}
+  <div class="mx-auto w-full max-w-[90rem] px-4 pb-16 sm:px-6">
     <SessionsList client:load />
-  </main>
-</BaseLayout>
+  </div>
+</ShellLayout>

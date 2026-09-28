@@ -278,7 +278,7 @@ export function PreferencesForm() {
 
   return (
     <Card className="bg-card ring-1 ring-border/40">
-      <CardHeader className="flex flex-row items-start justify-between gap-4">
+      <CardHeader className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:gap-4">
         <div className="space-y-1">
           <CardTitle>Preferences</CardTitle>
           <CardDescription>

@@ -169,44 +169,41 @@ const TABLE_NAMES = Object.keys(TABLE_DOCS);
 // ---------------------------------------------------------------------------
 
 /**
- * Lightweight metadata descriptors for the showcase Durable Object agents that
- * don't (yet) expose a static `docsMetadata()`. Keeps the `/docs/agents` page
- * populated without forcing every agent to implement the full contract.
+ * The Durable Objects this Worker actually runs, for the ones that do not expose
+ * a static `docsMetadata()`.
+ *
+ * This list used to name `CodeModeAgent`, `BrowserHitlAgent`, `WorkflowsAgent`
+ * and `ArtifactAgent` — four of the ten template showcase agents deleted in the
+ * v2 DO migration. `/docs` therefore advertised a catalog of agents that no
+ * longer exist and could not be reached. Anything added here MUST be a class in
+ * `_worker.ts`'s exports and a binding in `wrangler.jsonc`, or this page is
+ * lying again.
  */
-const SHOWCASE_AGENTS = [
+const LIVE_AGENTS = [
   {
-    name: "CodeModeAgent",
-    className: "CodeModeAgent",
+    name: "NotificationsAgent",
+    className: "NotificationsAgent",
     description:
-      "Demonstrates server-side tool calling: the agent generates and reasons over code, exposing callable RPC methods to the frontend.",
-    docsPath: "/docs/agents/code-mode",
+      "Holds notification state for the whole workspace and syncs it to every open tab over a WebSocket. Bound as NOTIFICATIONS_AGENT, one instance named \"global\".",
+    docsPath: "/docs",
     methods: [] as Array<{ name: string; description: string }>,
     tools: [] as string[],
   },
   {
-    name: "BrowserHitlAgent",
-    className: "BrowserHitlAgent",
+    name: "SessionDO",
+    className: "SessionDO",
     description:
-      "Human-in-the-loop browser automation: proposes actions, persists them as proposals, and waits for approval before continuing.",
-    docsPath: "/docs/agents/browser-hitl",
+      "One instance per editing session. Sole allocator of the monotonic event `seq`, which is what makes the realtime replay buffer gap-free, and the socket /ws/session/:uuid connects to.",
+    docsPath: "/docs",
     methods: [],
     tools: [],
   },
   {
-    name: "WorkflowsAgent",
-    className: "WorkflowsAgent",
+    name: "FolderDO",
+    className: "FolderDO",
     description:
-      "Durable, multi-step workflows that survive restarts — showcases scheduled tasks and durable execution on a Durable Object.",
-    docsPath: "/docs/agents/workflows",
-    methods: [],
-    tools: [],
-  },
-  {
-    name: "ArtifactAgent",
-    className: "ArtifactAgent",
-    description:
-      "Streams structured artifacts (documents, canvases) back to an assistant-ui surface with incremental updates.",
-    docsPath: "/docs/agents/artifacts",
+      "One instance per folder. Broadcasts tree and metadata changes over /ws/folder/:id, so an agent editing a folder is visible in an open tab without a refresh.",
+    docsPath: "/docs",
     methods: [],
     tools: [],
   },
@@ -342,7 +339,7 @@ docsRouter.openapi(
   (async (c: any) => {
     const agents = [
       { ...ChatBroker.docsMetadata(), tools: [] as string[] },
-      ...SHOWCASE_AGENTS,
+      ...LIVE_AGENTS,
     ];
 
     return c.json({ agents });

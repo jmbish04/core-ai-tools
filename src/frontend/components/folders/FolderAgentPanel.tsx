@@ -24,7 +24,8 @@ import type {
   ChatMessageRecord,
   TranscriptRecord,
 } from "@/components/blocks/ai-chat-2/components/data";
-import { apiSend } from "@/lib/api";
+import { AGENT_TURN_STREAM_PATH } from "@/lib/endpoints";
+import { postSse } from "@/lib/sse";
 import type { FolderRow } from "./types";
 
 interface ToolCallRecord {
@@ -45,7 +46,9 @@ function toolLine(calls: ToolCallRecord[]): string {
   const parts = calls.map((c) =>
     c.ok ? `\`${c.name}\` ✓` : `\`${c.name}\` ✗ — ${c.error ?? "failed"}`,
   );
-  return `\n\n*Ran:* ${parts.join(" · ")}`;
+  // No emphasis markers: the renderer left `*Ran:*` on screen as literal
+  // asterisks. Backticks around the tool names do render, so they stay.
+  return `\n\nRan ${parts.join(" · ")}`;
 }
 
 const now = () => new Date().toISOString();
@@ -88,37 +91,79 @@ export function FolderAgentPanel({
       };
       setMessages((prev) => [...prev, userMessage]);
 
-      try {
-        const turn = await apiSend<TurnResponse>("POST", "agent/turn", {
-          folderId: folder?.id ?? null,
-          message: trimmed,
-          history: history.current.slice(-20),
-          model: modelId,
-        }, { signal: controller.signal });
+      // The reply grows in place. One message id for the whole turn, so each
+      // delta rewrites that message rather than appending a new one.
+      const replyId = `a-${Date.now()}`;
+      let replyText = "";
+      const tools: ToolCallRecord[] = [];
 
-        // Stopped while this was in flight: drop the reply rather than appending
-        // it after whatever the user said next.
-        if (controller.signal.aborted) return;
-
-        const replyText = `${turn.reply}${toolLine(turn.toolCalls)}`;
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `a-${Date.now()}`,
+      /** Rewrite the assistant message with whatever has arrived so far. */
+      const paint = () => {
+        const text = `${replyText}${toolLine(tools)}`;
+        setMessages((prev) => {
+          const next = [...prev];
+          const at = next.findIndex((m) => m.id === replyId);
+          const message: ChatMessageRecord = {
+            id: replyId,
             role: "assistant",
-            parts: [{ kind: "text", text: replyText }],
+            parts: [{ kind: "text", text }],
             at: now(),
-          },
-        ]);
-        history.current = [
-          ...history.current,
-          { role: "user", content: trimmed },
-          { role: "assistant", content: turn.reply },
-        ];
+          };
+          if (at === -1) next.push(message);
+          else next[at] = message;
+          return next;
+        });
+      };
 
-        // Anything the agent did lands in D1; pull it in rather than waiting on
-        // the socket, which the user has no reason to know about.
-        if (turn.toolCalls.some((c) => c.ok)) onChanged();
+      try {
+        for await (const frame of postSse(
+          `/api/${AGENT_TURN_STREAM_PATH}`,
+          {
+            folderId: folder?.id ?? null,
+            message: trimmed,
+            history: history.current.slice(-20),
+            model: modelId,
+          },
+          controller.signal,
+        )) {
+          // Stopped while this was in flight: drop the rest rather than writing
+          // it in after whatever the user said next.
+          if (controller.signal.aborted) return;
+
+          switch (frame.type) {
+            case "delta":
+              replyText += String(frame.text ?? "");
+              paint();
+              break;
+            case "tool": {
+              const call = frame as unknown as ToolCallRecord;
+              tools.push({ name: call.name, ok: call.ok, error: call.error });
+              // A tool that succeeded has already committed to D1. Refresh now
+              // rather than at the end of the turn, so the tree moves while the
+              // agent is still talking — which is the point of streaming this.
+              if (call.ok) onChanged();
+              paint();
+              break;
+            }
+            case "done": {
+              const turn = frame.turn as unknown as TurnResponse;
+              // `done` is authoritative: the deltas can miss a trailing chunk.
+              replyText = turn.reply;
+              tools.splice(0, tools.length, ...turn.toolCalls);
+              paint();
+              history.current = [
+                ...history.current,
+                { role: "user", content: trimmed },
+                { role: "assistant", content: turn.reply },
+              ];
+              if (turn.toolCalls.some((c) => c.ok)) onChanged();
+              break;
+            }
+            case "error":
+              setError(String(frame.message ?? "The agent could not be reached."));
+              break;
+          }
+        }
       } catch (err) {
         if (controller.signal.aborted) return;
         setError(err instanceof Error ? err.message : "The agent could not be reached.");
@@ -138,7 +183,11 @@ export function FolderAgentPanel({
   };
 
   return (
-    <section className="bg-card border-border flex h-[calc(100svh-12rem)] min-h-[28rem] flex-col rounded-lg border">
+    // The viewport height belongs to the sticky third column only. Below xl the
+    // panel is stacked under the folder, where `100svh` made it a ~700px box of
+    // empty space between the settings card and the composer — the transcript
+    // grows into its height, so it has to be bounded, not filled.
+    <section className="bg-card border-border flex h-[32rem] flex-col rounded-lg border xl:h-[calc(100svh-12rem)] xl:min-h-[28rem]">
       <header className="border-border border-b px-4 py-3">
         <h2 className="text-foreground text-sm font-semibold">Agent</h2>
         <p className="text-muted-foreground mt-0.5 text-xs">
@@ -198,6 +247,9 @@ export function FolderAgentPanel({
           streaming={streaming}
           modelId={modelId}
           onModelChange={setModelId}
+          placeholder={
+            folder ? `Ask the agent about ${folder.name}…` : "Pick a folder to work in…"
+          }
           onSend={(t) => void send(t)}
           onStop={() => {
             inFlight.current?.abort();

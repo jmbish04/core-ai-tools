@@ -75,7 +75,10 @@ export const COLLABORATORS: PersonRecord[] = [MAYA, JONAS, PRIYA]
 /** The person typing in the panel. */
 export const VIEWER = MAYA
 
-export const ASSISTANT_NAME = "ReUI Chat"
+/** What the panel calls itself. This product's panel is the folder agent,
+ * not the block's demo assistant — the block shipped "ReUI Chat", which the
+ * disclaimer under the composer printed verbatim on the folders screen. */
+export const ASSISTANT_NAME = "The agent"
 
 const THREAD_TITLE = "Webhook section"
 const THREAD_AT = "10:41"

@@ -19,6 +19,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import {
+  LIBRARY_FOLDERS_PATH,
+  LIBRARY_IMAGES_PATH,
+  folderSettingsPath,
+} from "@/lib/endpoints";
 import { buildFolderTree } from "./types";
 import type { FolderNode, FolderRow, ImageRow, ResolvedFolderSettings } from "./types";
 import { FolderSettingsCard } from "./FolderSettingsCard";
@@ -27,23 +32,33 @@ import { FolderTree } from "./FolderTree";
 import { FolderAgentPanel } from "./FolderAgentPanel";
 import { ProjectHero } from "./ProjectHero";
 
-/** Read the folder id out of the URL so a reload lands on the same folder. */
-function folderFromLocation(): string | null {
-  if (typeof window === "undefined") return null;
-  return new URLSearchParams(window.location.search).get("folder");
-}
-
-export function FolderOrganiser() {
+export function FolderOrganiser({
+  /**
+   * The folder from `?folder=` in the URL, read on the SERVER and passed in.
+   *
+   * This used to be read from `window.location` in the initial state, which is
+   * null during SSR and a real id in the browser — so every deep link (the one
+   * the wizard redirects to, and the one the component itself keeps in the URL)
+   * hydrated with a mismatch, React discarded the whole server render of this
+   * island and rebuilt it. The page still worked, which is why it went unnoticed:
+   * the only symptom was a minified #418 in the console on the product's main
+   * screen. Astro knows the query string; it should be the one to say.
+   */
+  initialFolderId = null,
+}: {
+  initialFolderId?: string | null;
+}) {
   const [folders, setFolders] = useState<FolderRow[] | null>(null);
-  const [selected, setSelected] = useState<string | null>(folderFromLocation);
+  const [selected, setSelected] = useState<string | null>(initialFolderId);
   const [images, setImages] = useState<ImageRow[] | null>(null);
   const [settings, setSettings] = useState<ResolvedFolderSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [bodyError, setBodyError] = useState<string | null>(null);
   const [live, setLive] = useState(false);
 
   const loadFolders = useCallback(async () => {
     try {
-      const res = await apiGet<{ folders: FolderRow[] }>("library/folders");
+      const res = await apiGet<{ folders: FolderRow[] }>(LIBRARY_FOLDERS_PATH);
       setFolders(res.folders);
       setError(null);
     } catch (err) {
@@ -55,13 +70,26 @@ export function FolderOrganiser() {
     if (!folderId) {
       setImages(null);
       setSettings(null);
+      setBodyError(null);
       return;
     }
     const [imgs, resolved] = await Promise.allSettled([
-      apiGet<{ images: ImageRow[] }>("library", { folderId }),
-      apiGet<ResolvedFolderSettings>(`library/folders/${folderId}/settings`),
+      apiGet<{ images: ImageRow[] }>(LIBRARY_IMAGES_PATH, { folderId }),
+      apiGet<ResolvedFolderSettings>(folderSettingsPath(folderId)),
     ]);
-    setImages(imgs.status === "fulfilled" ? imgs.value.images : []);
+    // A failed read is NOT an empty folder. Substituting `[]` here is how this
+    // screen spent its whole life reporting "0 images" for every folder while
+    // the request behind it 404'd — the one failure mode a screenshot cannot
+    // tell apart from the truth.
+    if (imgs.status === "fulfilled") {
+      setImages(imgs.value.images);
+      setBodyError(null);
+    } else {
+      setImages(null);
+      setBodyError(
+        imgs.reason instanceof Error ? imgs.reason.message : "Could not load this folder's images.",
+      );
+    }
     setSettings(resolved.status === "fulfilled" ? resolved.value : null);
   }, []);
 
@@ -172,12 +200,14 @@ export function FolderOrganiser() {
             folders={folders ?? []}
             settings={settings}
             images={images}
+            imagesError={bodyError}
           />
         ) : null}
         <FolderContents
           folder={selectedFolder}
           images={images}
           live={live}
+          error={bodyError}
           onChanged={() => void loadFolderBody(selected)}
         />
         <FolderSettingsCard

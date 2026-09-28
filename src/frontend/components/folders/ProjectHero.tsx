@@ -57,11 +57,15 @@ export function ProjectHero({
   folders,
   settings,
   images,
+  imagesError,
 }: {
   folder: FolderRow;
   folders: FolderRow[];
   settings: ResolvedFolderSettings | null;
   images: ImageRow[] | null;
+  /** Set when the images could not be read. `null` images then means failed,
+   *  not loading — without this the count sat at "…" forever. */
+  imagesError?: string | null;
 }) {
   const backdrop = (images ?? []).slice(0, 3);
   const hasSettings =
@@ -94,9 +98,11 @@ export function ProjectHero({
             </Badge>
           ) : null}
           <span className="text-muted-foreground text-xs">
-            {images === null
-              ? "…"
-              : `${images.length} image${images.length === 1 ? "" : "s"}`}
+            {imagesError
+              ? "images unavailable"
+              : images === null
+                ? "…"
+                : `${images.length} image${images.length === 1 ? "" : "s"}`}
           </span>
         </div>
 

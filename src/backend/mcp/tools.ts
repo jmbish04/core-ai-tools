@@ -53,6 +53,7 @@ export const MCP_TOOLS: McpToolSpec[] = [
   { name: "get_image_by_public_id", summary: "Resolve a pasted short handle (img_…) to its library image.", core: "requireImageByPublicId" },
   { name: "create_asset", summary: "Make a registered library image an asset (tracked across iterations).", core: "createAsset" },
   { name: "promote_image_to_asset", summary: "Promote an existing image into an asset (row copied, origin recorded).", core: "promoteImageToAsset" },
+  { name: "place_asset_in_folder", summary: "Drop a working copy of an asset into a folder (row copied, lineage inherited); the asset stays put.", core: "placeAssetInFolder" },
   { name: "list_assets", summary: "List assets, newest first (archived excluded by default).", core: "listAssets" },
   { name: "list_asset_iterations", summary: "An asset's flat timeline of produced images, oldest first.", core: "listAssetIterations" },
   { name: "update_asset", summary: "Rename an asset and/or edit its metadata; null clears a field.", core: "updateAsset" },

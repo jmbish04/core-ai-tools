@@ -11,7 +11,15 @@
 import { applyD1Migrations, env, reset } from "cloudflare:test";
 import { beforeEach } from "vitest";
 
+import type { TestEnv } from "./env";
+
+// `env` is typed as the Worker's own `Cloudflare.Env`, which knows nothing about
+// the suite-only bindings vitest.config.mts adds. Narrowed here rather than by
+// augmenting `Cloudflare.Env`, because a required property on that interface
+// breaks every `Env` in the Worker.
+const testEnv = env as unknown as TestEnv;
+
 beforeEach(async () => {
   await reset();
-  await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
+  await applyD1Migrations(testEnv.DB, testEnv.TEST_MIGRATIONS);
 });

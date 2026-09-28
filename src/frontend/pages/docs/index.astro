@@ -1,141 +1,214 @@
 ---
-import BaseLayout from "@/layouts/BaseLayout.astro";
-import { Badge } from "@/components/ui/badge";
+/**
+ * @fileoverview `/docs` — how this workspace is built, and how to drive it.
+ *
+ * `/docs` is an Astro SSR page, NOT an API path: `isApiPath()` in `_worker.ts`
+ * deliberately excludes it, and the docs metadata API lives under `/api/docs/*`.
+ *
+ * The agent grid binds to the live `GET /api/docs/agents` through the
+ * `DocsAgentsSection` island — real Durable Objects, no mock data.
+ */
+import ShellLayout from "@/layouts/ShellLayout.astro";
 import { CodeBlock } from "@/components/ui/code-block";
 import { DocsAgentsSection } from "@/components/docs";
-
-/**
- * Documentation home (`/docs`).
- *
- * NOTE FOR THE ORCHESTRATOR: `src/_worker.ts` `isApiPath()` currently treats the
- * exact path `/docs` as a Hono-owned route, so this Astro page is NOT reachable
- * until that guard is adjusted (the Hono app only mounts `/api/docs/*`, so a
- * request to `/docs` falls through to a 404 today). See the agent's final report
- * for the one-line fix. Everything on this page is otherwise wired to real data.
- *
- * The agent capability grid binds to the live `GET /api/docs/agents` metadata
- * via the `DocsAgentsSection` island (no mock data).
- */
+import { shellNavFor } from "@/lib/nav";
 
 const stackRows: { area: string; tech: string; note: string }[] = [
-  { area: "Runtime", tech: "Cloudflare Workers", note: "Single Worker serving SSR, API, and agents" },
-  { area: "Frontend", tech: "Astro 5 + React islands", note: "SSR pages, interactive islands, shadcn/ui (base-ui)" },
-  { area: "API", tech: "Hono + zod-openapi", note: "Zod-validated routes, OpenAPI 3.1 at /openapi.json" },
-  { area: "Database", tech: "D1 + Drizzle ORM", note: "One table per file under db/schemas/<domain>/" },
-  { area: "Agents", tech: "Cloudflare Agents SDK", note: "Durable Objects with embedded SQLite + WebSocket" },
-  { area: "Chat UI", tech: "assistant-ui", note: "useAgentChat runtime over the hibernatable socket" },
+  { area: "Runtime", tech: "Cloudflare Workers", note: "One Worker serving SSR, the API, the MCP server and the Durable Objects" },
+  { area: "Frontend", tech: "Astro + React islands", note: "SSR pages, interactive islands, ReUI on a dark-first theme" },
+  { area: "API", tech: "Hono + zod-openapi", note: "Zod-validated routes; the OpenAPI 3.1 document is generated from them" },
+  { area: "Database", tech: "D1 + Drizzle ORM", note: "One table per file under db/schemas/<domain>/; migrations only ever stack" },
+  { area: "Realtime", tech: "Durable Objects", note: "FolderDO and SessionDO broadcast changes to open tabs over WebSocket" },
+  { area: "Models", tech: "core-guardian", note: "Every inference is routed for budget and breaker checks, and its usage recorded" },
 ];
 
 const apiSurfaces: { href: string; label: string; desc: string }[] = [
-  { href: "/openapi.json", label: "openapi.json", desc: "The raw OpenAPI 3.1 document for the whole API." },
-  { href: "/scalar", label: "Scalar", desc: "Interactive, modern API reference UI." },
+  { href: "/openapi.json", label: "openapi.json", desc: "The OpenAPI 3.1 document for the whole API, generated from the route schemas." },
+  { href: "/scalar", label: "Scalar", desc: "Interactive API reference." },
   { href: "/swagger", label: "Swagger UI", desc: "Classic try-it-out request explorer." },
-  { href: "/health", label: "/api/health", desc: "Structured health check across every agent binding." },
+  { href: "/api/health", label: "/api/health", desc: "Structured health check across D1 and every Durable Object binding." },
+];
+
+const concepts: { title: string; body: string; href?: string; cta?: string }[] = [
+  {
+    title: "A project is a folder",
+    body:
+      "There is no separate projects table. A project is a folder that has settings on it — a default prompt, context, a use case — and the onboarding wizard ends by creating one.",
+    href: "/projects/new",
+    cta: "Start a project",
+  },
+  {
+    title: "Settings inherit, and say where from",
+    body:
+      "A folder that sets nothing uses the nearest ancestor that does. Every setting is shown with the folder it came from, because an inherited prompt is indistinguishable from a local one until you are told — and then you edit the wrong folder.",
+    href: "/folders",
+    cta: "Open folders",
+  },
+  {
+    title: "Nothing is overwritten",
+    body:
+      "Each edit is a node in a tree. Retrying stacks as another attempt of the same edit; going a different way branches. A failed attempt is kept, and you can fork from it.",
+    href: "/sessions",
+    cta: "See sessions",
+  },
+  {
+    title: "Everything traces to its asset",
+    body:
+      "Promote an image to an asset and every picture later made from it stays attributed to it — through forks and retries — so one source's whole history reads in order.",
+    href: "/assets",
+    cta: "Browse assets",
+  },
 ];
 
 const quickstart = `# Install and run the dev server
 pnpm install
 pnpm dev
 
-# Apply local D1 migrations (generates + applies)
+# Apply local D1 migrations (generate, then apply)
 pnpm migrate:local
 
-# Build the Worker bundle (Astro + adapter)
-pnpm build`;
+# The gates, both of which must be clean before a deploy
+pnpm test
+pnpm typecheck`;
 
-const fetchAgentsExample = `// The agent catalog on this page is fetched live from the Hono API.
-import { apiGet } from "@/lib/api";
-
-type AgentsResponse = { agents: AgentMetadata[] };
-
-const { agents } = await apiGet<AgentsResponse>("docs/agents");`;
+const codeModeExample = `// tools/list advertises three tools, not thirty. One execute call
+// chains as many named tools as the job needs, in one round trip.
+const result = await call_tool("execute", {
+  code: \`async () => {
+    const images = await call_tool("list_library", { limit: 5 });
+    const session = await call_tool("create_session", {
+      library_image_id: images[0].id,
+    });
+    return await call_tool("submit_edit", {
+      session_uuid: session.session_uuid,
+      prompt_text: "warmer light, keep the cabinetry",
+      idempotency_key: crypto.randomUUID(),
+    });
+  }\`,
+});`;
 ---
 
-<BaseLayout
-  title="Documentation"
-  description="Documentation home for the Astro + Hono + D1/Drizzle + Cloudflare Agents SDK template — stack overview, live API references, and the agent capability catalog"
+<ShellLayout
+  title="Docs"
+  description="How this workspace is built — the stack, the ideas it is organised around, the live API reference, and the Durable Objects behind it."
+  {...shellNavFor(Astro.url.pathname)}
 >
-  <div class="container mx-auto max-w-6xl px-4 py-16">
-
-    <!-- Hero -->
-    <section class="mb-16">
-      <Badge variant="outline" class="mb-4 font-mono text-[11px]">Docs</Badge>
-      <h1 class="text-balance text-4xl font-bold tracking-tight sm:text-5xl">Documentation</h1>
-      <p class="mt-5 max-w-3xl text-lg leading-relaxed text-muted-foreground">
-        How this workspace is built: a single Cloudflare Worker serving Astro SSR pages, a
-        Zod-validated Hono API over D1/Drizzle, an MCP server in code mode, and image models
-        routed through core-guardian. Start in your folders, or explore the live API below.
+  <div class="mx-auto w-full max-w-5xl px-4 pb-20 sm:px-6">
+    <header class="mb-12">
+      <h2 class="text-foreground text-2xl font-semibold tracking-tight">Docs</h2>
+      <p class="text-muted-foreground mt-3 max-w-3xl text-sm leading-relaxed">
+        A folder-organised image workspace on one Cloudflare Worker: Astro SSR pages, a
+        Zod-validated Hono API over D1, an MCP server in code mode, and image models routed
+        through core-guardian. Start in your folders, or connect a client over MCP.
       </p>
-      <div class="mt-6 flex flex-wrap gap-2">
-        <a href="/folders" class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90">Open folders</a>
-        <a href="/connect" class="rounded-lg bg-muted px-4 py-2 text-sm font-semibold transition-colors hover:bg-muted/70">Connect over MCP</a>
+      <div class="mt-5 flex flex-wrap gap-2">
+        <a
+          href="/folders"
+          class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md px-4 py-2 text-sm font-medium transition-colors"
+        >
+          Open folders
+        </a>
+        <a
+          href="/connect"
+          class="bg-muted hover:bg-muted/70 rounded-md px-4 py-2 text-sm font-medium transition-colors"
+        >
+          Connect over MCP
+        </a>
+      </div>
+    </header>
+
+    <!-- The ideas, before the machinery -->
+    <section class="mb-14">
+      <h3 class="text-foreground mb-1 text-lg font-semibold">How it is organised</h3>
+      <p class="text-muted-foreground mb-6 max-w-3xl text-sm">
+        Four decisions explain most of the product. They are deliberate, and the reasons are
+        worth knowing before changing anything.
+      </p>
+      <div class="grid gap-4 sm:grid-cols-2">
+        {concepts.map((c) => (
+          <article class="bg-card border-border flex flex-col rounded-lg border p-5">
+            <h4 class="text-foreground text-sm font-semibold">{c.title}</h4>
+            <p class="text-muted-foreground mt-2 flex-1 text-sm leading-relaxed">{c.body}</p>
+            {c.href ? (
+              <a href={c.href} class="text-foreground mt-4 text-sm font-medium underline-offset-4 hover:underline">
+                {c.cta} &rarr;
+              </a>
+            ) : null}
+          </article>
+        ))}
       </div>
     </section>
 
-    <!-- Stack overview -->
-    <section class="mb-16">
-      <h2 class="mb-2 text-2xl font-bold tracking-tight">The stack</h2>
-      <p class="mb-8 max-w-3xl text-sm text-muted-foreground">
-        One Worker, three concerns. Each row maps to a real layer of this codebase.
+    <!-- Stack -->
+    <section class="mb-14">
+      <h3 class="text-foreground mb-1 text-lg font-semibold">The stack</h3>
+      <p class="text-muted-foreground mb-6 max-w-3xl text-sm">
+        One Worker. Each row is a real layer of this codebase.
       </p>
-      <div class="overflow-hidden rounded-xl bg-card ring-1 ring-border/40">
-        <div class="divide-y divide-border/40">
-          {stackRows.map((row) => (
-            <div class="grid grid-cols-1 gap-1 px-5 py-4 sm:grid-cols-[8rem_14rem_1fr] sm:items-center sm:gap-4">
-              <span class="text-xs font-medium uppercase tracking-wide text-muted-foreground/70">{row.area}</span>
-              <span class="font-mono text-sm text-foreground">{row.tech}</span>
-              <span class="text-sm text-muted-foreground">{row.note}</span>
-            </div>
-          ))}
-        </div>
+      <div class="bg-card border-border divide-border divide-y overflow-hidden rounded-lg border">
+        {stackRows.map((row) => (
+          <div class="grid grid-cols-1 gap-1 px-5 py-4 sm:grid-cols-[7rem_13rem_1fr] sm:items-center sm:gap-4">
+            <span class="text-muted-foreground text-[11px] font-medium tracking-wide uppercase">{row.area}</span>
+            <span class="text-foreground font-mono text-sm">{row.tech}</span>
+            <span class="text-muted-foreground text-sm">{row.note}</span>
+          </div>
+        ))}
       </div>
     </section>
 
-    <!-- Quickstart -->
-    <section class="mb-16">
-      <h2 class="mb-2 text-2xl font-bold tracking-tight">Quickstart</h2>
-      <p class="mb-8 max-w-3xl text-sm text-muted-foreground">
-        Node 22+ and <code class="text-primary">pnpm</code> are required.
+    <!-- MCP in code mode -->
+    <section class="mb-14">
+      <h3 class="text-foreground mb-1 text-lg font-semibold">MCP is in code mode</h3>
+      <p class="text-muted-foreground mb-6 max-w-3xl text-sm">
+        Tool definitions are re-sent on every request of every session, so advertising 39
+        tools costs about 4,000 tokens per turn. This server advertises three —
+        <code>search</code>, <code>get_schema</code>, <code>execute</code> — and the rest stay
+        dispatchable behind them. Measured: 365 tokens instead of 4,046.
       </p>
-      <CodeBlock client:visible filename="terminal" language="bash" code={quickstart} />
+      <CodeBlock client:visible filename="one execute call" language="ts" code={codeModeExample} />
     </section>
 
     <!-- Live API docs -->
-    <section class="mb-16">
-      <h2 class="mb-2 text-2xl font-bold tracking-tight">Live API reference</h2>
-      <p class="mb-8 max-w-3xl text-sm text-muted-foreground">
-        The API is self-documenting. The OpenAPI document and both reference UIs are served
-        directly by the Worker.
+    <section class="mb-14">
+      <h3 class="text-foreground mb-1 text-lg font-semibold">Live API reference</h3>
+      <p class="text-muted-foreground mb-6 max-w-3xl text-sm">
+        Generated from the route schemas, served by the Worker — so it cannot describe an
+        endpoint that is not there.
       </p>
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {apiSurfaces.map((surface) => (
           <a
             href={surface.href}
-            class="group flex flex-col rounded-xl bg-card p-5 ring-1 ring-border/40 transition-colors hover:ring-border/70"
+            class="group bg-card border-border hover:border-border/70 flex flex-col rounded-lg border p-5 transition-colors"
           >
             <div class="mb-1 flex items-center justify-between gap-2">
-              <span class="font-mono text-sm text-foreground">{surface.label}</span>
-              <span aria-hidden class="text-muted-foreground transition-transform group-hover:translate-x-0.5">→</span>
+              <span class="text-foreground font-mono text-sm">{surface.label}</span>
+              <span aria-hidden="true" class="text-muted-foreground transition-transform group-hover:translate-x-0.5">&rarr;</span>
             </div>
-            <span class="text-sm text-muted-foreground">{surface.desc}</span>
+            <span class="text-muted-foreground text-sm">{surface.desc}</span>
           </a>
         ))}
       </div>
     </section>
 
-    <!-- Agent catalog (live) -->
-    <section class="mb-16">
-      <h2 class="mb-2 text-2xl font-bold tracking-tight">Agent catalog</h2>
-      <p class="mb-8 max-w-3xl text-sm text-muted-foreground">
-        Loaded live from <code class="text-primary">GET /api/docs/agents</code> — the same metadata
-        the backend derives from each Durable Object. No mock data.
+    <!-- Durable Objects (live) -->
+    <section class="mb-14">
+      <h3 class="text-foreground mb-1 text-lg font-semibold">Durable Objects</h3>
+      <p class="text-muted-foreground mb-6 max-w-3xl text-sm">
+        Loaded live from <code>GET /api/docs/agents</code>. These are the classes this Worker
+        exports and binds — nothing that was deleted in a DO migration appears here.
       </p>
       <DocsAgentsSection client:visible />
-
-      <div class="mt-8">
-        <CodeBlock client:visible filename="how this section loads" language="ts" code={fetchAgentsExample} />
-      </div>
     </section>
 
+    <!-- Running it -->
+    <section>
+      <h3 class="text-foreground mb-1 text-lg font-semibold">Running it locally</h3>
+      <p class="text-muted-foreground mb-6 max-w-3xl text-sm">
+        Node 22+ and <code>pnpm</code>. <code>pnpm build</code> does not typecheck, so both
+        gates below are separate.
+      </p>
+      <CodeBlock client:visible filename="terminal" language="bash" code={quickstart} />
+    </section>
   </div>
-</BaseLayout>
+</ShellLayout>

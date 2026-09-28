@@ -363,8 +363,10 @@ export function LibraryGrid() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="relative w-64">
+        {/* Wraps: at 375 the fixed-width search left no room for the button
+            beside it, and the button was pushed off the right edge. */}
+        <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
+          <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               type="text"

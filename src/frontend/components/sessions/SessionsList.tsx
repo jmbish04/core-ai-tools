@@ -117,8 +117,10 @@ export function SessionsList() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="relative w-64">
+        {/* Wraps: at 375 the fixed-width search left no room for the button
+            beside it, and the button was pushed off the right edge. */}
+        <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
+          <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               type="text"
@@ -140,7 +142,9 @@ export function SessionsList() {
 
       {/* Filter Row Chips */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-card p-3 ring-1 ring-border/40">
-        <div className="flex items-center gap-2">
+        {/* The inner group wraps too: the outer row wrapping is not enough when
+            the chips themselves overflow a 375px card — Surface ran off it. */}
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <span className="font-mono text-xs text-muted-foreground uppercase mr-1">
             Status:
           </span>
@@ -215,9 +219,12 @@ export function SessionsList() {
             </Button>
           </div>
         ) : (
-          <div className="divide-y divide-border/40">
+          // The rows below are a fixed six-column grid that needs ~46rem. It
+          // scrolls sideways rather than dropping columns, so a narrow screen
+          // can still reach the ones it came for.
+          <div className="divide-y divide-border/40 overflow-x-auto">
             {/* Table Header */}
-            <div className="grid grid-cols-[60px_1fr_120px_100px_160px_100px] items-center gap-4 bg-muted/30 px-5 py-3 text-xs font-mono text-muted-foreground uppercase tracking-wider">
+            <div className="grid min-w-[46rem] grid-cols-[60px_1fr_120px_100px_160px_100px] items-center gap-4 bg-muted/30 px-5 py-3 text-xs font-mono text-muted-foreground uppercase tracking-wider">
               <span>Photo</span>
               <span>Session / Title</span>
               <span>Revisions</span>
@@ -231,7 +238,7 @@ export function SessionsList() {
               <a
                 key={s.sessionUuid}
                 href={`/sessions/${s.sessionUuid}`}
-                className="grid grid-cols-[60px_1fr_120px_100px_160px_100px] items-center gap-4 px-5 py-3.5 text-sm transition-colors hover:bg-accent/5 group"
+                className="grid min-w-[46rem] grid-cols-[60px_1fr_120px_100px_160px_100px] items-center gap-4 px-5 py-3.5 text-sm transition-colors hover:bg-accent/5 group"
               >
                 {/* Thumbnail */}
                 <div className="h-10 w-10 overflow-hidden rounded-lg bg-background ring-1 ring-border/40">

@@ -8,20 +8,13 @@
  */
 import ShellLayout from "@/layouts/ShellLayout.astro";
 import { AssetLibrary } from "@/components/assets/AssetLibrary";
-
-const subnav = [
-  { id: "folders", label: "Folders", href: "/folders" },
-  { id: "assets", label: "Assets", href: "/assets" },
-  { id: "compare", label: "Compare models", href: "/compare" },
-];
+import { shellNavFor } from "@/lib/nav";
 ---
 
 <ShellLayout
   title="Assets"
   description="Reusable source images, and everything made from them."
-  section="assets"
-  subnav={subnav}
-  subnavCurrent="assets"
+  {...shellNavFor(Astro.url.pathname)}
 >
   <div class="mx-auto w-full max-w-[90rem] px-4 pb-16 sm:px-6">
     <header class="mb-6">

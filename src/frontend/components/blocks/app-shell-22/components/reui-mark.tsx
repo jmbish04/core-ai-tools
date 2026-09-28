@@ -1,3 +1,20 @@
+/**
+ * The mark, as a link home. The block shipped it as decoration, which left the
+ * landing page unreachable from every product route — the rail has no "home"
+ * section and none should be added, so the mark is the way back.
+ */
+export function ReuiMarkLink({ className }: { className?: string } = {}) {
+  return (
+    <a
+      href="/"
+      aria-label="core-ai-tools home"
+      className={`shrink-0 rounded-full transition-opacity hover:opacity-80 ${className ?? ""}`}
+    >
+      <ReuiMark />
+    </a>
+  )
+}
+
 export function ReuiMark() {
   return (
     <svg

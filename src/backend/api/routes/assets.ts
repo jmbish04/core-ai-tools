@@ -27,6 +27,7 @@ import {
   createCoreContext,
   listAssetIterations,
   listAssets,
+  placeAssetInFolder,
   promoteImageToAsset,
   requireAsset,
   restoreAsset,
@@ -207,5 +208,44 @@ assetsRouter.openapi(
     // (an absence must never read as "this asset produced nothing").
     await requireAsset(ctx, assetId, { includeArchived: true });
     return c.json({ iterations: await listAssetIterations(ctx, assetId, c.req.valid("query")) });
+  },
+);
+
+/**
+ * Drop a working copy of an asset into a folder.
+ *
+ * The inverse of promote. The image row is COPIED (same Cloudflare Images object,
+ * new row, fresh public id) so the asset itself does not move into the folder —
+ * `core/assets/place.ts` says why that separation is load-bearing.
+ */
+assetsRouter.openapi(
+  createRoute({
+    method: "post",
+    path: "/api/assets/{id}/place",
+    tags: ["assets"],
+    summary: "Place a copy of an asset's image into a folder",
+    request: {
+      params: idParam,
+      body: jsonBody(
+        z.object({
+          /** Destination folder. `null` is the library root. */
+          folderId: z.string().nullable(),
+          role: z.enum(["base", "reference", "inject"]).nullable().optional(),
+          usageInstructions: z.string().nullable().optional(),
+        }),
+      ),
+    },
+    responses: ok,
+  }),
+  async (c) => {
+    const body = c.req.valid("json");
+    const placed = await placeAssetInFolder(createCoreContext(c.env), {
+      assetId: c.req.valid("param").id,
+      folderId: body.folderId,
+      // Absent keys must stay absent: core distinguishes "not mentioned" from
+      // "explicitly null" with `"key" in input`.
+      ...definedKeys({ role: body.role, usageInstructions: body.usageInstructions }),
+    });
+    return c.json(placed);
   },
 );

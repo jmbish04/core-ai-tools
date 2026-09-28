@@ -1,30 +1,29 @@
 ---
 /**
- * Assistant workspace page — the full multi-thread showcase: a thread list
- * (new / switch / archive / delete) on the left and the enhanced Thread
- * (markdown, suggestions, generative-UI tool cards) on the right.
+ * @fileoverview `/assistant` — several assistant conversations at once.
  *
- * The workspace island is browser-only: it transitively depends on
- * `agents/react` + PartySocket, so it MUST mount `client:only="react"`.
+ * Thread list on the left, the conversation on the right; each thread is its own
+ * ChatBroker Durable Object instance. Browser-only for the same reason `/chat`
+ * is: `agents/react`'s `useAgent` cannot run in the SSR worker.
  */
-import BaseLayout from "@/layouts/BaseLayout.astro";
+import ShellLayout from "@/layouts/ShellLayout.astro";
 import { AssistantWorkspace } from "@/components/assistant/AssistantWorkspace";
+import { shellNavFor } from "@/lib/nav";
 ---
 
-<BaseLayout
-  title="Assistant"
-  description="Multi-thread AI assistant with markdown, follow-up suggestions, and generative UI, backed by the ChatBroker Durable Object."
+<ShellLayout
+  title="Assistant threads"
+  description="Several persistent assistant conversations, each backed by its own Durable Object."
+  {...shellNavFor(Astro.url.pathname)}
 >
-  <div class="container mx-auto px-4 py-8 max-w-7xl">
+  <div class="mx-auto w-full max-w-[90rem] px-4 pb-16 sm:px-6">
     <header class="mb-6">
-      <h1 class="text-2xl font-bold tracking-tight">Assistant</h1>
-      <p class="mt-1 text-sm text-muted-foreground max-w-2xl">
-        Multiple persistent conversations, each backed by its own ChatBroker
-        Durable Object instance. Rich markdown replies, follow-up suggestions,
-        and inline generative-UI cards (KPI + task draft).
+      <h2 class="text-foreground text-lg font-semibold">Threads</h2>
+      <p class="text-muted-foreground mt-1 max-w-2xl text-sm">
+        Keep more than one conversation going. Each thread remembers itself, so you can leave
+        one mid-thought and come back to it.
       </p>
     </header>
-
     <AssistantWorkspace client:only="react" />
   </div>
-</BaseLayout>
+</ShellLayout>

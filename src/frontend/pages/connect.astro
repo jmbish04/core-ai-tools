@@ -1,50 +1,70 @@
 ---
-import BaseLayout from "@/layouts/BaseLayout.astro";
+/**
+ * @fileoverview `/connect` — point an MCP client at this workspace.
+ *
+ * NOT under `/mcp`: the OAuth provider's `apiRoute: "/mcp"` is a PREFIX match,
+ * so a page there answers "POST JSON-RPC" to a browser. Nothing but the
+ * protocol may live under that path.
+ *
+ * The tool list is deliberately short. `tools/list` advertises three tools —
+ * `search`, `get_schema`, `execute` — and every named tool below is reached
+ * through them, which is what keeps a session's tool definitions at ~365 tokens
+ * instead of ~4,046.
+ */
+import ShellLayout from "@/layouts/ShellLayout.astro";
+import { shellNavFor } from "@/lib/nav";
 
 const MCP_URL = "https://core-ai-tools.hacolby.workers.dev/mcp";
-const tools = [
-  ["create_session", "Start a session from a library image."],
-  ["list_sessions / list_sessions_for_image", "Find sessions; every session spawned from an image."],
-  ["get_session_tree", "The revision tree, retry attempts grouped."],
-  ["submit_edit", "Create a revision (returns immediately; progress streams to the web UI). Send an idempotency_key."],
-  ["retry_revision / fork_revision", "Another attempt of an edit / branch from any node."],
-  ["create_mask", "bbox / polygon / raster / semantic (natural-language region)."],
-  ["approve_revision / reject_revision", "HITL gate — approve from Claude without opening a browser."],
-  ["list_available_models", "The model registry: ids, capabilities, cost."],
-  ["get_prompt_templates", "Retrieve best-practice templates BEFORE composing a prompt."],
-  ["promote_prompt / grade_revision", "Promote a good prompt; grade a result + failure mode."],
+
+/** A sample of the named tools. Names are the real ones from `mcp/tools.ts`. */
+const tools: [string, string][] = [
+  ["list_folders · create_folder · move_folder", "The nested tree. Re-parenting refuses a cycle."],
+  ["get_folder_settings · set_folder_settings", "Prompt, context and use case, each with the ancestor it came from. null clears one and inherits again."],
+  ["list_library · get_image_by_public_id · move_image", "Images, and the short img_… handle you paste into a prompt."],
+  ["update_image_metadata", "Title, role, usage instructions, context."],
+  ["list_assets · promote_image_to_asset · list_asset_iterations", "The reusable sources, and everything descended from one."],
+  ["generate_image", "Text to image, straight into the library. Counts, styles and variations fan out in parallel."],
+  ["create_session · resume_session · get_session_tree", "Start editing an image; read back the revision tree with retries grouped as attempts."],
+  ["submit_edit · retry_revision · fork_revision", "One edit, another attempt of it, or a branch from any node. Send an idempotency_key."],
+  ["create_mask · list_masks · describe_mask", "bbox, polygon, raster, or semantic — a region named in words."],
+  ["approve_revision · reject_revision", "The approval gate, without opening a browser."],
+  ["list_available_models · set_task_default", "The registry, and which model a kind of work resolves to."],
+  ["get_prompt_templates · promote_prompt · grade_revision", "Reuse a wording that worked; record how one actually scored."],
 ];
 ---
 
-<BaseLayout title="MCP Setup" description="Connect the core-ai-tools MCP server to Claude or any MCP client.">
-  <main class="container mx-auto flex max-w-3xl flex-col gap-8 px-4 py-12">
+<ShellLayout
+  title="Connect over MCP"
+  description="Connect this workspace to Claude, or any MCP client, over Streamable HTTP."
+  {...shellNavFor(Astro.url.pathname)}
+>
+  <div class="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 pb-16 sm:px-6">
     <header class="flex flex-col gap-2">
-      <div class="flex items-center gap-3">
-        <span class="text-4xl">🔌</span>
-        <h1 class="text-3xl font-semibold tracking-tight">MCP Setup</h1>
-      </div>
-      <p class="text-base text-muted-foreground">
-        Drive a session from Claude (or any MCP client). Start in the browser, walk away, continue
-        from Claude — new revisions appear in the open tab in realtime.
+      <h2 class="text-foreground text-lg font-semibold">Connect over MCP</h2>
+      <p class="text-muted-foreground max-w-2xl text-sm">
+        Drive this workspace from Claude. Start in the browser, walk away, carry on from
+        Claude — anything the agent does appears in the open tab as it happens.
       </p>
     </header>
 
-    <section class="flex flex-col gap-3 rounded-lg bg-card p-5 ring-1 ring-border/40">
-      <h2 class="text-sm uppercase tracking-wide text-muted-foreground">Endpoint</h2>
-      <code class="rounded bg-background/60 px-3 py-2 font-mono text-sm ring-1 ring-border/40">{MCP_URL}</code>
-      <p class="text-sm text-muted-foreground">
-        JSON-RPC 2.0 over Streamable HTTP. Implements <code>initialize</code>, <code>tools/list</code>,
-        and <code>tools/call</code>.
+    <section class="bg-card border-border flex flex-col gap-3 rounded-lg border p-5">
+      <h3 class="text-muted-foreground text-xs tracking-wide uppercase">Endpoint</h3>
+      <code class="bg-background/60 border-border overflow-x-auto rounded border px-3 py-2 font-mono text-sm">{MCP_URL}</code>
+      <p class="text-muted-foreground text-sm">
+        JSON-RPC 2.0 over Streamable HTTP, behind OAuth 2.1 (dynamic client registration) or a
+        bearer <code>WORKER_API_KEY</code>. Unauthenticated calls are refused, including
+        <code>initialize</code>.
       </p>
     </section>
 
     <section class="flex flex-col gap-3">
-      <h2 class="text-sm uppercase tracking-wide text-muted-foreground">Add as a custom connector</h2>
-      <p class="text-sm text-muted-foreground">
-        In Claude (Settings → Connectors → Add custom connector), point it at the endpoint above. Or in
-        a local MCP client, add:
+      <h3 class="text-muted-foreground text-xs tracking-wide uppercase">Add as a custom connector</h3>
+      <p class="text-muted-foreground text-sm">
+        In Claude: Settings → Connectors → Add custom connector, and paste the endpoint above.
+        Claude registers itself; approve it with the workspace key when the consent page asks.
+        In a local MCP client:
       </p>
-      <pre class="overflow-x-auto rounded-lg bg-background/60 p-4 text-xs ring-1 ring-border/40"><code>{`{
+      <pre class="bg-background/60 border-border overflow-x-auto rounded-lg border p-4 text-xs"><code>{`{
   "mcpServers": {
     "core-ai-tools": {
       "url": "${MCP_URL}"
@@ -54,28 +74,32 @@ const tools = [
     </section>
 
     <section class="flex flex-col gap-3">
-      <h2 class="text-sm uppercase tracking-wide text-muted-foreground">Quick test</h2>
-      <pre class="overflow-x-auto rounded-lg bg-background/60 p-4 text-xs ring-1 ring-border/40"><code>{`curl -s ${MCP_URL} \\
+      <h3 class="text-muted-foreground text-xs tracking-wide uppercase">Quick test</h3>
+      <pre class="bg-background/60 border-border overflow-x-auto rounded-lg border p-4 text-xs"><code>{`curl -s ${MCP_URL} \\
+  -H 'Authorization: Bearer <WORKER_API_KEY>' \\
   -H 'Content-Type: application/json' \\
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`}</code></pre>
+      <p class="text-muted-foreground text-sm">
+        That returns three tools, not thirty. Every tool below is reached with
+        <code>execute</code> — one snippet can chain several in a single call.
+      </p>
     </section>
 
     <section class="flex flex-col gap-3">
-      <h2 class="text-sm uppercase tracking-wide text-muted-foreground">Tools</h2>
-      <ul class="divide-y divide-border/40 rounded-lg bg-card ring-1 ring-border/40">
+      <h3 class="text-muted-foreground text-xs tracking-wide uppercase">What it can do</h3>
+      <ul class="bg-card border-border divide-border divide-y rounded-lg border">
         {tools.map(([name, desc]) => (
           <li class="flex flex-col gap-0.5 px-4 py-3">
-            <code class="font-mono text-sm">{name}</code>
-            <span class="text-xs text-muted-foreground">{desc}</span>
+            <code class="font-mono text-sm break-words">{name}</code>
+            <span class="text-muted-foreground text-xs">{desc}</span>
           </li>
         ))}
       </ul>
-      <p class="text-xs text-muted-foreground">
-        Every tool is session-scoped and its results are visible in the web UI in realtime. Image
-        generation returns a compact payload with a delivery URL + a deep link into the app — no image
-        bytes unless you ask. Note: live model generation is still being wired; read/organise tools work
-        fully today.
+      <p class="text-muted-foreground text-xs">
+        Every tool is scoped to the session or folder it names, and its result is visible in
+        the web UI in realtime. Image tools return a delivery URL and a deep link into the
+        app — never inline bytes.
       </p>
     </section>
-  </main>
-</BaseLayout>
+  </div>
+</ShellLayout>
