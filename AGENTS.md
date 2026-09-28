@@ -905,12 +905,30 @@ flattening bug that derivation exists to avoid.
   one unit. If asset latency becomes the complaint, split the auth gate into its own edge
   Worker and call this one over a service binding — do NOT just drop `run_worker_first`,
   which would serve pages without the auth check.
-- **Build caching is a DASHBOARD setting, not a Wrangler one.** There is no `wrangler.jsonc`
-  field for it: Workers & Pages → the Worker → Settings → Build → Build cache → Enable.
-  Nothing in the repo needs to change for it to work — it auto-detects pnpm (caches
-  `.pnpm-store`) and Astro (caches `node_modules/.astro`) from `package.json`. Keep it that
-  way: setting a custom pnpm `store-dir` in an `.npmrc` would silently opt the project out
-  of dependency caching. Cache is purged 7 days after last read; 10 GB per project.
+- **Build caching lives on the build TRIGGER, and CANNOT go in `wrangler.jsonc`.** This gets
+  asked for as a config change, so here is the evidence rather than an assertion: no
+  `build_caching` / `buildCaching` / `build_cache` key exists anywhere in
+  `node_modules/wrangler/config-schema.json` (checked against 4.114.0), and the only `build`
+  block the file accepts is **Custom Builds** (`command`/`cwd`/`watch_dir`), which Cloudflare
+  documents as NOT honoured by Workers Builds
+  (developers.cloudflare.com/workers/ci-cd/builds/configuration/). Adding an invented key
+  would make wrangler warn about an unexpected field, change nothing, and leave the file
+  claiming the setting was configured — strictly worse than leaving it out.
+  Two real ways to set it, both Cloudflare-side:
+  - Dashboard: Workers & Pages → the Worker → Settings → Build → Build cache → Enable.
+  - API: `PATCH /accounts/{account_id}/builds/triggers/{trigger_uuid}` with
+    `{"build_caching_enabled": true}`. Wrapped as **`node scripts/enable-build-cache.mjs`**
+    (`--dry-run` / `--disable` / `--worker <name>`), which resolves the trigger itself and
+    reads `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` from the environment — supply
+    them from the `tokens` CLI, never hardcoded.
+  Nothing in the repo needs to change for the cache to be effective once on — it auto-detects
+  pnpm (caches `.pnpm-store`) and Astro (caches `node_modules/.astro`) from `package.json`.
+  Keep it that way: setting a custom pnpm `store-dir` in an `.npmrc` would silently opt the
+  project out of dependency caching. Cache is purged 7 days after last read; 10 GB per
+  project. (Unrelated near-miss when searching the docs: `cache: { enabled: true }` IS a real
+  `wrangler.jsonc` block, but it is **Workers Caching** — runtime response caching in front of
+  every entrypoint. Do not reach for it thinking it is the build cache; in front of this
+  Worker's session-cookie auth gate it would need its own design pass.)
 
 ## Gates, and the four dependencies that were never declared
 
