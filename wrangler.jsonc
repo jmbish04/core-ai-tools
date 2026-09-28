@@ -28,8 +28,33 @@
   "assets": {
     "binding": "ASSETS",
     "directory": "./dist",
+    // The Worker must see every request before assets are served: the session
+    // cookie gate in `_worker.ts` refuses page navigations before Astro renders
+    // anything. This cannot be turned off without opening every page.
     "run_worker_first": true,
     "not_found_handling": "404-page",
+  },
+  // Smart Placement: run the Worker near its backend rather than near the
+  // eyeball. The backend that matters here is D1, which is regional and which
+  // most SSR pages hit several times (`/folders` alone reads folders, images and
+  // resolved settings), so the round trips it saves are the whole point.
+  //
+  // KNOWN TRADE-OFF, because `run_worker_first` above is true: every request —
+  // static assets included — travels to the placed Worker first, so asset
+  // delivery gets slower for users far from the chosen location. Cloudflare also
+  // documents that placement decisions "may not be optimized correctly" with
+  // `run_worker_first`, since the whole script is placed as one unit
+  // (developers.cloudflare.com/workers/static-assets/binding/#smart-placement).
+  // Splitting the auth gate into its own edge Worker and calling this one over a
+  // service binding is the documented way out if asset latency becomes the
+  // complaint.
+  //
+  // Durable Objects place themselves and are unaffected. `mode: "smart"` is
+  // right here rather than a `region`/`hostname` hint because the Worker talks
+  // to several backends (D1, core-guardian over a service binding, Images,
+  // Gemini/OpenAI) and no single one of them is the location to pin to.
+  "placement": {
+    "mode": "smart",
   },
   "ai": {
     "binding": "AI",

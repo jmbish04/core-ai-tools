@@ -859,6 +859,37 @@ label** (labels are minted per session, so `rev1` in two sessions is two nodes),
 missing intermediates INFERRED rather than collapsed — cousins promoted to siblings is the
 flattening bug that derivation exists to avoid.
 
+## Deploying: CI/CD, Smart Placement, and the build cache
+
+- **`pnpm run deploy` is the deploy command** — build, copy `.assetsignore`, apply
+  migrations, `wrangler deploy`. Point Workers Builds at it. If the CI/CD **build**
+  command is also set to `pnpm run build`, the build runs TWICE: either leave the build
+  command empty and let `deploy` do both, or set the build command to `pnpm run build` and
+  the deploy command to `pnpm run migrate:deploy && npx wrangler deploy`.
+- **`migrate:deploy` exists so CI never generates a migration.** It applies committed
+  migrations only. `migrate:remote` runs `db:generate` first, which is right for a human who
+  just changed the schema and wrong for CI: on a push whose author had not run
+  `db:generate`, CI would mint a migration from schema drift, apply it to the PRODUCTION
+  D1, and throw the file away with the ephemeral workspace. The next local `db:generate`
+  then produces the same migration under a different random name — the "never rewrite a
+  migration that has shipped remote" rule broken by the deploy path itself. Never point a
+  CI deploy command at `migrate:remote`.
+- **Smart Placement is on** (`"placement": {"mode": "smart"}`). It runs the Worker near D1
+  rather than near the eyeball, which is worth it because most SSR pages make several
+  queries. The trade-off is real and wrangler warns about it on every deploy: `assets.
+  run_worker_first` is `true` (the session-cookie gate has to see every request), so ALL
+  traffic including static assets reaches the placed Worker first, and Cloudflare documents
+  that placement is less accurate in this combination because the whole script is placed as
+  one unit. If asset latency becomes the complaint, split the auth gate into its own edge
+  Worker and call this one over a service binding — do NOT just drop `run_worker_first`,
+  which would serve pages without the auth check.
+- **Build caching is a DASHBOARD setting, not a Wrangler one.** There is no `wrangler.jsonc`
+  field for it: Workers & Pages → the Worker → Settings → Build → Build cache → Enable.
+  Nothing in the repo needs to change for it to work — it auto-detects pnpm (caches
+  `.pnpm-store`) and Astro (caches `node_modules/.astro`) from `package.json`. Keep it that
+  way: setting a custom pnpm `store-dir` in an `.npmrc` would silently opt the project out
+  of dependency caching. Cache is purged 7 days after last read; 10 GB per project.
+
 ## Gates, and the four dependencies that were never declared
 
 `vitest`, `@cloudflare/vitest-pool-workers`, `@google/genai` and
