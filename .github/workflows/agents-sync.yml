@@ -63,7 +63,11 @@ jobs:
           set -euo pipefail
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A .agents AGENTS.md
+          # -f: several repos .gitignore `.agents`, and `git add` then refuses the whole
+          # step with exit 1. These files are deliberately committed — a repo-local ignore
+          # must not silently defeat the sync. Measured 2026-09-28 on agentic-inbox and
+          # core-github-api: both runs died here with "paths are ignored by .gitignore".
+          git add -A -f .agents AGENTS.md
           if git diff --cached --quiet; then
             echo "briefings already current"
             exit 0
