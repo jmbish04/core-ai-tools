@@ -163,6 +163,30 @@ Python — never from a guess.
 |---|---|
 | `AGENTS.md`, `AGENTS-maestro.md`, `AGENTS-github.md` | `AGENTS-cloudflare-workers.md`, `AGENTS-frontend.md`, `AGENTS-mcp.md`, `AGENTS-ai.md`, `AGENTS-python.md`, `AGENTS-macos.md`, `AGENTS-proxmox.md` |
 
+**The same sync ships the default scripts.** `scripts/gh.mjs` lands in every repo,
+and the rest follow the stack the way the chapters do:
+
+| Script | Where it goes | What it is |
+| --- | --- | --- |
+| `scripts/gh.mjs` | every repo | the GitHub entry point. Wraps the `gh-tools` CLI |
+| `scripts/tokens.mjs` | every repo | scaffolded from the `tokens` CLI, not vendored — one source, no drift |
+| `scripts/fix-d1-migrations.mjs` | Worker repos | makes Drizzle's SQL re-runnable on D1 |
+| `scripts/reui.mjs` | frontend repos | pins the `@reui` registry so Pro blocks stop 401-ing |
+
+**`scripts/gh.mjs` exists so you do not write another one.** Agents reach for a
+homegrown `gh.mjs` in every repo, re-solve GitHub auth badly, and lose an hour to a
+401 that was already solved — on this machine `GITHUB_TOKEN` is a dead token exported
+into every shell and `GH_TOKEN` is the live one, so a helper that reads
+`process.env.GITHUB_TOKEN` picks the corpse. Import it (`import { gh, ghJson } from
+"./scripts/gh.mjs"`) or run it (`node scripts/gh.mjs pr-discussion . 20`). It is local
+only; there is no `gh-tools` on a CI runner.
+
+**A script of yours is never silently replaced.** Only files carrying the
+`colby-ecosystem: managed script` banner are overwritten. A `scripts/gh.mjs` that is
+not ours is kept, and the run says so by name — `--force-scripts` replaces it, which
+is the right call when the file in the way is exactly the hand-rolled helper this
+is meant to retire.
+
 **The repo's own `AGENTS.md` is never overwritten.** The synced files sit under
 `.agents/ecosystem/`, and the only thing written to the repo-root `AGENTS.md` is a
 delimited managed block of pointers at the top. Everything outside that block is
@@ -210,13 +234,14 @@ list: it commits to each repo's default branch and sets a secret on each, across
 many repos as the limit allows. That default is deliberate, and do not add a flag
 that removes it.
 
-**On the token:** `GH_ECOSYSTEM_READ_TOKEN` does not exist yet — verified with
-`tokens find ecosystem` on 2026-09-28, which returned no match. `GH_TOKEN` works
-today, which is why `gh-tools` falls back to it. A fine-grained PAT with
-`contents: read` on `jmbish04/colby-ecosystem` alone would be better, and it goes
-in the **tokens CLI only**: no Worker reads it, so per "Secrets & credentials" it
-must not take a Secret Store slot. Store it under `GH_ECOSYSTEM_READ_TOKEN` and
-`gh-tools` picks it up with no edit.
+**On the token — decided 2026-09-28, do not reopen it:** `COLBY_ECOSYSTEM_TOKEN`
+carries `GH_TOKEN`, and **no dedicated token is to be minted for this.** A narrower
+fine-grained PAT was offered and declined; the record is
+`decisions/2026-09-28-ecosystem-read-token.md`. `gh-tools` still looks for
+`GH_ECOSYSTEM_READ_TOKEN` first and falls back to `GH_TOKEN`, so if Justin ever
+creates one it is picked up with no code change — but creating one is his call,
+not a gap for you to close. It would live in the **tokens CLI only**: no Worker
+reads it, so per "Secrets & credentials" it must never take a Secret Store slot.
 
 The git hooks (`post-merge`, `post-checkout`) keep a local `git pull` fresh too.
 Hooks are not cloned, so **run `.agents/ecosystem/pull-agents install-hooks` once
