@@ -40,9 +40,14 @@
  *      That asymmetry is detected below and reported as scope, not as a dead key.
  *
  * Usage (token and account id come from the environment — never hardcode either):
- *   CLOUDFLARE_API_TOKEN=$(tokens show CLOUDFLARE_WRANGLER_API_TOKEN --value-only) \
+ *   CLOUDFLARE_API_TOKEN=$(tokens show CLOUDFLARE_USER_WRANGLER_API_TOKEN --value-only) \
  *   CLOUDFLARE_ACCOUNT_ID=$(tokens show CLOUDFLARE_ACCOUNT_ID --value-only) \
  *   node scripts/enable-build-cache.mjs
+ *
+ * USE `CLOUDFLARE_USER_WRANGLER_API_TOKEN`, not `CLOUDFLARE_WRANGLER_API_TOKEN`. The
+ * latter is account-scoped and 12006s on every /builds/* path (fact 2 above). The
+ * user-scoped one is the credential maestro task c9c075bd52a7 measured as returning
+ * 200 there, after four other account tokens also failed.
  *
  * Flags:
  *   --worker <name>  Worker to configure (default: core-ai-tools)
@@ -141,7 +146,8 @@ try {
     console.error(
       `The Builds API rejected this token (12006), but /workers/scripts accepted it ` +
         `just now — so the token is valid and ACCOUNT-scoped, and /builds/* needs a ` +
-        `USER-scoped one. Supply a user-scoped token rather than rotating this one:\n` +
+        `USER-scoped one. Do NOT rotate this token; use the user-scoped one:\n` +
+        `  CLOUDFLARE_API_TOKEN=$(tokens show CLOUDFLARE_USER_WRANGLER_API_TOKEN --value-only)\n` +
         `  ${err.message}`,
     );
     process.exit(3);

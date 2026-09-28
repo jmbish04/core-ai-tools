@@ -123,7 +123,22 @@ const check = (name, cond, detail) => {
   server.close();
   check("exits 3 on a Builds-API 12006", code === 3, out);
   check("names the scope, not a dead key", /scoped/i.test(out), out);
-  check("does not tell the user to rotate the token", !/rotat(e|ing) this/i.test(out) || /rather than rotating/i.test(out), out);
+  // Intent, not wording: it may mention rotation only to rule it OUT, and it must
+  // name the credential that actually works. An earlier version of this check pattern-
+  // matched one exact phrasing and failed a message that had been IMPROVED to
+  // "Do NOT rotate this token" — a check that fails on a better answer is not a check.
+  const mentionsRotation = /rotat/i.test(out);
+  const rotationIsNegated = /(do ?n[o']?t|never|rather than|instead of)[^.\n]{0,24}rotat/i.test(out);
+  check(
+    "never advises rotating the working token",
+    !mentionsRotation || rotationIsNegated,
+    out,
+  );
+  check(
+    "names the user-scoped token as the fix",
+    /CLOUDFLARE_USER_WRANGLER_API_TOKEN/.test(out),
+    out,
+  );
 }
 
 // Case 3 — an unknown Worker name fails before any builds call.

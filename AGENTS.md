@@ -938,7 +938,10 @@ flattening bug that derivation exists to avoid.
       with 218 scripts on the same token that 12006'd on
       `/builds/workers/{tag}/triggers`. The script runs the script lookup first precisely
       so it can tell the two apart, and exits 3 saying "account-scoped" rather than
-      sending anyone to rotate a working key. Both branches are covered by
+      sending anyone to rotate a working key. **The token that DOES work is
+      `CLOUDFLARE_USER_WRANGLER_API_TOKEN`** — maestro task `c9c075bd52a7` measured it
+      returning 200 on `/builds/*` after `CLOUDFLARE_WRANGLER_API_TOKEN` and four other
+      account-scoped tokens all failed, so that is the one to export. Both branches are covered by
       `scripts/__tests__/enable-build-cache.test.mjs` (a stub API, run with `node`, not in
       the workerd suite), planted by reintroducing each bug.
   Nothing in the repo needs to change for the cache to be effective once on — it auto-detects
