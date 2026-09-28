@@ -958,6 +958,31 @@ flattening bug that derivation exists to avoid.
   every entrypoint. Do not reach for it thinking it is the build cache; in front of this
   Worker's session-cookie auth gate it would need its own design pass.)
 
+## Permission prompts in a cloud session: the allowlist never arrives
+
+**A cloud session's `$HOME` is `/root`, not `/Users/126colby`, so NONE of the
+machine-wide standing authorizations in `~/.claude/settings.json` exist there.**
+Measured 2026-09-28 in this container: `~/.claude/settings.json` and
+`~/.claude/settings.local.json` are both absent, so every pre-approved tool — the
+Cloudflare API MCP included — prompted on each call. This is the exact structural
+problem the `.agents/ecosystem/` sync was built to solve for the briefings
+("`$HOME` ... is exactly where a cloud session, a CI runner, or another person's
+checkout cannot see them"), and the permission rules never got the same fix.
+
+**The fix is `.claude/settings.json` — committed, so it travels with the clone.**
+`.claude/settings.local.json` cannot: it is gitignored globally
+(`/root/.config/git/ignore`). This repo now carries `mcp__Cloudflare_API__*`,
+`mcp__cloudflare-docs__*` and `mcp__colby-maestro__*` there.
+
+**Second, independent bug: the briefing's rule name does not match the tool name.**
+`.agents/ecosystem/AGENTS.md` allowlists `mcp__cloudflare-api*` (lowercase,
+hyphen). The connector's real tools are **`mcp__Cloudflare_API__search` /
+`__execute`** (capitalized, underscores). A permission rule is a literal glob, so
+that rule matches nothing — which means it is likely dead on the Mac too, not just
+here. The briefing anticipated a UUID-named connector but not a
+display-name-derived one. Use the name the session actually reports, never the one
+a doc remembers.
+
 ## Gates, and the four dependencies that were never declared
 
 `vitest`, `@cloudflare/vitest-pool-workers`, `@google/genai` and
