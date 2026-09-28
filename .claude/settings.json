@@ -3,8 +3,12 @@
   "permissions": {
     "allow": [
       "mcp__Cloudflare_API__*",
+      "mcp__cloudflare-api*",
+      "mcp__cloudflare_api__*",
       "mcp__cloudflare-docs__*",
-      "mcp__colby-maestro__*"
+      "mcp__colby-maestro__*",
+      "Bash(pnpm run deploy)",
+      "Bash(npx wrangler deploy*)"
     ]
   }
 }

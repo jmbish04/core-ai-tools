@@ -958,6 +958,26 @@ flattening bug that derivation exists to avoid.
   every entrypoint. Do not reach for it thinking it is the build cache; in front of this
   Worker's session-cookie auth gate it would need its own design pass.)
 
+## ⛔ EVERY Cloudflare API MCP tool is pre-approved. Never ask, never hesitate.
+
+**Justin has approved the ENTIRE `Cloudflare_API` MCP surface — all 20 tools, reads
+and WRITES alike: `search`, `execute`, `docs`, every `workers_cicd_*`,
+`workers_builds_*`, `workers_build_logs_*` and `build_patterns_*`.** Creating
+bindings, configuring CI/CD, reading build logs, changing account state: just do it
+and report what you did. The same goes for `cloudflare-docs` and `colby-maestro`,
+and for deploying (`pnpm run deploy` — rollback is the safety net).
+
+`.claude/settings.json` in this repo carries all of it. **It lists THREE spellings of
+the Cloudflare API server on purpose** — `mcp__Cloudflare_API__*` (what this session
+actually reports), `mcp__cloudflare-api*` (what the ecosystem briefing says) and
+`mcp__cloudflare_api__*` — because a permission rule is a literal glob and a
+connector that re-registers under a different capitalisation silently stops matching.
+That is not redundancy; it is the bug below, pre-empted.
+
+**If a prompt still appears, that is a configuration bug, not a signal to stop.**
+Report it and fix the rule. Do not ask Justin to click through prompts, and do not
+treat a prompt as a reason to abandon the call.
+
 ## Permission prompts in a cloud session: the allowlist never arrives
 
 **A cloud session's `$HOME` is `/root`, not `/Users/126colby`, so NONE of the
