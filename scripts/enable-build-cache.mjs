@@ -163,6 +163,8 @@ if (!Array.isArray(triggers) || triggers.length === 0) {
   process.exit(1);
 }
 
+let failed = false;
+
 for (const trigger of triggers) {
   const uuid = trigger.trigger_uuid ?? trigger.uuid;
   const label = trigger.trigger_name ?? uuid;
@@ -181,9 +183,24 @@ for (const trigger of triggers) {
     method: "PATCH",
     body: { build_caching_enabled: enable },
   });
-  // Report what came back rather than what was sent: the write is only real if
-  // the server echoes it.
-  console.log(
-    `${label}: build_caching_enabled ${before} -> ${updated?.build_caching_enabled === true}.`,
-  );
+
+  // Trust the server's echo, not the request — and FAIL when they disagree. Printing
+  // the echoed value without checking it was the original bug here: an API that
+  // accepted the PATCH without returning the field made this print
+  // "false -> false" and exit 0, which reads as "nothing to do" while the caller
+  // believes the setting was changed. A tool whose whole job is to flip one flag
+  // must not exit 0 having failed to flip it.
+  const after = updated?.build_caching_enabled;
+  if (after !== enable) {
+    console.error(
+      `${label}: PATCH returned 200 but the trigger came back with ` +
+        `build_caching_enabled=${JSON.stringify(after)}, not ${enable}. The setting is ` +
+        `NOT changed — check it in the dashboard before assuming otherwise.`,
+    );
+    failed = true;
+    continue;
+  }
+  console.log(`${label}: build_caching_enabled ${before} -> ${after}.`);
 }
+
+if (failed) process.exit(4);

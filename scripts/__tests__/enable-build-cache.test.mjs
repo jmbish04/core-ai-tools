@@ -59,6 +59,11 @@ function stub(mode) {
       return ok([{ trigger_uuid: "t-1", trigger_name: "production", build_caching_enabled: false }]);
     }
     if (req.url.includes("/builds/triggers/")) {
+      if (mode === "noecho") {
+        // 200, but the flag is absent — the shape that used to exit 0 reporting
+        // "false -> false", i.e. a failure that read as "nothing to do".
+        return ok({ trigger_uuid: "t-1" });
+      }
       return ok({ trigger_uuid: "t-1", build_caching_enabled: true });
     }
     return send(404, { success: false, result: null, errors: [], messages: [] });
@@ -151,6 +156,24 @@ const check = (name, cond, detail) => {
     "never reaches /builds/* with an unresolved name",
     !seen.some((s) => s.includes("/builds/")),
     `saw: ${JSON.stringify(seen)}`,
+  );
+}
+
+// Case 4 — a PATCH that returns 200 without echoing the flag must FAIL LOUDLY.
+{
+  const { server, port } = await stub("noecho");
+  const { code, out } = await run(port);
+  server.close();
+  check("exits non-zero when the echo does not confirm the write", code !== 0, out);
+  check("says the setting is NOT changed", /NOT changed/i.test(out), out);
+  // The old code's exact symptom: a result line reading "false -> false", printed on
+  // stdout beside exit 0, which a reader parses as "already correct, nothing to do".
+  // An earlier version of this check looked for "false -> true" — a string the bug
+  // never produced — so it passed against the broken code and reported nothing.
+  check(
+    "does not print a result line for a write it could not confirm",
+    !/build_caching_enabled false -> false/.test(out),
+    out,
   );
 }
 
