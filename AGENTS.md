@@ -959,11 +959,24 @@ flattening bug that derivation exists to avoid.
   2026-09-28 for `core-ai-tools`: `placement: {mode: "smart", status: "SUCCESS",
   last_analyzed_at: …}`. A `status` that is not `SUCCESS` (e.g. `INSUFFICIENT_INVOCATIONS`)
   means the mode is set and placement is NOT actually happening — check the status, never
-  just the mode. That same row's `modified_on` is also the cheapest proof a Workers Builds
-  deploy really landed. (Unrelated near-miss when searching the docs: `cache: { enabled: true }` IS a real
-  `wrangler.jsonc` block, but it is **Workers Caching** — runtime response caching in front of
-  every entrypoint. Do not reach for it thinking it is the build cache; in front of this
-  Worker's session-cookie auth gate it would need its own design pass.)
+  just the mode.
+- **⛔ `modified_on` moving does NOT prove a Workers Builds deploy — I wrote that here and
+  it was wrong.** It proves *a* deploy, by any route. To learn WHICH, read
+  `GET /accounts/{id}/workers/scripts/core-ai-tools/deployments` and look at
+  `source` / `author_email`. Measured 2026-09-29: **every deployment on this Worker is
+  `source: "wrangler"`, `author_email: smart-home@126colby.com`** — not one came from a
+  build. So **Workers Builds is not deploying this Worker**, and the 2026-09-28T17:29
+  timestamp that arrived 90 seconds after PR #11 merged was somebody running
+  `wrangler deploy`, not CI/CD. Merging is therefore NOT a deploy here: PR #12 merged at
+  16:01 and two hours later `modified_on` was still the previous day's.
+  The build status that would explain why is unreadable from an account-scoped token
+  (`/builds/*` → 12006; see the user-token note above), so diagnosing it needs
+  `CLOUDFLARE_USER_WRANGLER_API_TOKEN`. Recorded in
+  `docs/decisions/2026-09-29-workers-builds-is-not-deploying.md`.
+- **Near-miss when searching the docs for the build cache:** `cache: { enabled: true }` IS a
+  real `wrangler.jsonc` block — but it is **Workers Caching**, runtime response caching in
+  front of every entrypoint, not the build cache. Do not reach for it thinking it is; in
+  front of this Worker's session-cookie auth gate it would need its own design pass.
 
 ## ⛔ EVERY Cloudflare API MCP tool is pre-approved. Never ask, never hesitate.
 
