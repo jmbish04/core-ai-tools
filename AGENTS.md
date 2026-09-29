@@ -972,10 +972,11 @@ flattening bug that derivation exists to avoid.
   The build status that would explain why is unreadable from an account-scoped token
   (`/builds/*` → 12006; see the user-token note above), so diagnosing it needs
   `CLOUDFLARE_USER_WRANGLER_API_TOKEN`. Recorded in
-  `docs/decisions/2026-09-29-workers-builds-is-not-deploying.md`. (Unrelated near-miss when searching the docs: `cache: { enabled: true }` IS a real
-  `wrangler.jsonc` block, but it is **Workers Caching** — runtime response caching in front of
-  every entrypoint. Do not reach for it thinking it is the build cache; in front of this
-  Worker's session-cookie auth gate it would need its own design pass.)
+  `docs/decisions/2026-09-29-workers-builds-is-not-deploying.md`.
+- **Near-miss when searching the docs for the build cache:** `cache: { enabled: true }` IS a
+  real `wrangler.jsonc` block — but it is **Workers Caching**, runtime response caching in
+  front of every entrypoint, not the build cache. Do not reach for it thinking it is; in
+  front of this Worker's session-cookie auth gate it would need its own design pass.
 
 ## ⛔ EVERY Cloudflare API MCP tool is pre-approved. Never ask, never hesitate.
 
