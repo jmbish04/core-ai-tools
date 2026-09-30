@@ -49,8 +49,10 @@ pnpm run build && cp .assetsignore dist/.assetsignore && pnpm run migrate:deploy
 So CI skips two steps a human running `pnpm run deploy` performs:
 
 1. **`migrate:deploy`** — `wrangler d1 migrations apply DB --remote`. CI has never applied a
-   migration. This is why `0015` can sit unapplied against production D1 while every merge
-   deploys green. New code booting against an un-migrated database is exactly what
+   migration. NOTE: this consequence is potential, not current — measured 2026-09-30, all
+   18 migrations including `0015`/`0016`/`0017` ARE applied on the production D1 (read from
+   `d1_migrations` via the D1 query API). Someone applied them by hand. The gap matters for
+   the next migration, not for a backlog. New code booting against an un-migrated database is exactly what
    AGENTS.md's "migrations run before the deploy" rule exists to prevent.
 2. **`cp .assetsignore dist/.assetsignore`** — without it the asset upload is not filtered as
    the repo intends.
@@ -143,9 +145,14 @@ command to `pnpm run deploy:ci`, leaving the build command as `pnpm run build`.
    `CLOUDFLARE_USER_WRANGLER_API_TOKEN`; every token available here returns 12006 on
    `/builds/*`.
 
-Until one of those happens, CI still deploys code without applying migrations, and
-`0015`/`0016`/`0017` stay pending. The proof it worked is
-`npx wrangler d1 migrations list DB --remote` coming back empty.
+Until one of those happens, CI deploys code without applying migrations. **Nothing is
+pending right now** — all 18 migrations are applied — so this is no longer urgent; it is
+insurance for the next schema change. Check the ledger without leaving a sandbox:
+
+```
+POST /accounts/{id}/d1/database/98b592ba-c5a3-47f4-950d-77a108b8d613/query
+{ "sql": "SELECT name FROM d1_migrations ORDER BY id" }
+```
 
 **Separate, and my hypothesis here was wrong — corrected the same hour.** I first wrote
 that PR #17 (`.github/` only) produced no build and guessed a path filter. PR #18 touched no

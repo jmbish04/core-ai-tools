@@ -249,8 +249,11 @@ and landing page are reshaped, and only in Phase 10.
 
 ## Wave 1 schema (W1.4–W1.6) — migration `0015_condemned_magma.sql` (local only so far)
 
-**⛔ `0015` is NOT yet applied remote.** It is purely additive (2 new tables, 10
-`ALTER TABLE ADD COLUMN`, 1 unique index) — apply it, never rewrite it.
+**✅ `0015` IS applied remote — this said the opposite and was stale.** Measured
+2026-09-30 by reading the ledger directly (see "Read the migration ledger" below): all
+**18** committed migrations are in `d1_migrations` on the production D1, `0015`, `0016`
+and `0017` included. Nothing is pending. It is purely additive (2 new tables, 10
+`ALTER TABLE ADD COLUMN`, 1 unique index) — never rewrite it.
 
 - **W1.4 nested folders + inheritable settings.** `library_folders` gained
   `default_prompt`, `context_text`, `use_case`, `preferred_models` (JSON array),
@@ -991,7 +994,9 @@ flattening bug that derivation exists to avoid.
   deploy works here (`wrangler.jsonc` has `main` + `assets.directory`), but `pnpm run deploy`
   is `build && cp .assetsignore dist/ && migrate:deploy && wrangler deploy` — so **CI never
   applies D1 migrations and never copies `.assetsignore`**. Code ships; schema does not.
-  That is why `0015` can sit unapplied while every merge deploys green.
+  Note the consequence is POTENTIAL, not current: `0015`/`0016`/`0017` are all applied
+  (someone ran `migrate:remote` by hand), so nothing is pending today. The gap matters for
+  the NEXT migration, not for a backlog.
 - **⛔ `configure_builds.py` IS A NO-OP IN THIS REPO, and I claimed the opposite here.**
   I wrote that it "re-asserts its config on EVERY push to main, POSTing a new trigger each
   time (17 successful runs)". Wrong — inferred from 17 *successful* job runs without reading
@@ -1030,6 +1035,27 @@ flattening bug that derivation exists to avoid.
   present; never treat its absence, or its lack of a conclusion, as evidence about whether a
   deploy happened. Poll `GET /accounts/{id}/workers/scripts/core-ai-tools/deployments` and
   read the newest entry's `created_on` + `versions[].percentage`.
+- **Read the migration ledger from a sandbox — do NOT hand this back to Justin.** I asked
+  for `npx wrangler d1 migrations list DB --remote` four times before noticing the D1 query
+  API answers it with the token this session already has:
+
+      POST /accounts/{id}/d1/database/98b592ba-c5a3-47f4-950d-77a108b8d613/query
+      { "sql": "SELECT name, applied_at FROM d1_migrations ORDER BY id" }
+
+  Returned 200 with all 18 rows. `/d1/*` is a different path family from `/builds/*` and is
+  NOT affected by the 12006 below.
+- **⛔ `/builds/*` is entirely unreachable from this connector — now measured, not inferred.**
+  I first reported this from ONE endpoint. Measured properly 2026-09-30, **eight** distinct
+  endpoints all return `12006 Invalid token`: `/builds/triggers`,
+  `/builds/workers/{tag}/triggers`, `/builds/workers/{tag}`, `/builds/workers/{tag}/builds`,
+  `/builds/builds/latest`, `/builds/repos/connections`, `/builds/tokens`,
+  `/builds/account/limits` — while `/workers/scripts/*` and `/d1/*` return 200 on the same
+  token. And `workers_cicd_get` / `workers_cicd_configure` / `workers_builds_list` return a
+  malformed MCP result (`missing required resultType`) on every call, including after a
+  server reconnect, so the dedicated tools are not a way round it. The ecosystem briefing's
+  claim that "the token this connector forwards is user-scoped" is therefore FALSE for
+  `/builds/*`; changing a build trigger needs the dashboard or
+  `CLOUDFLARE_USER_WRANGLER_API_TOKEN`.
 - **Corollary for anyone chasing a "broken" deploy:** check `/deployments` FIRST and give it
   a few minutes. Two of my four conclusions today about whether CI deployed were wrong, both
   from reading GitHub check runs instead of Cloudflare's own deployment list. Open decision:
