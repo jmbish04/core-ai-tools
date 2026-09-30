@@ -960,18 +960,35 @@ flattening bug that derivation exists to avoid.
   last_analyzed_at: …}`. A `status` that is not `SUCCESS` (e.g. `INSUFFICIENT_INVOCATIONS`)
   means the mode is set and placement is NOT actually happening — check the status, never
   just the mode.
-- **⛔ `modified_on` moving does NOT prove a Workers Builds deploy — I wrote that here and
-  it was wrong.** It proves *a* deploy, by any route. To learn WHICH, read
-  `GET /accounts/{id}/workers/scripts/core-ai-tools/deployments` and look at
-  `source` / `author_email`. Measured 2026-09-29: **every deployment on this Worker is
-  `source: "wrangler"`, `author_email: smart-home@126colby.com`** — not one came from a
-  build. So **Workers Builds is not deploying this Worker**, and the 2026-09-28T17:29
-  timestamp that arrived 90 seconds after PR #11 merged was somebody running
-  `wrangler deploy`, not CI/CD. Merging is therefore NOT a deploy here: PR #12 merged at
-  16:01 and two hours later `modified_on` was still the previous day's.
-  The build status that would explain why is unreadable from an account-scoped token
-  (`/builds/*` → 12006; see the user-token note above), so diagnosing it needs
-  `CLOUDFLARE_USER_WRANGLER_API_TOKEN`. Recorded in
+- **⛔ `source: "wrangler"` does NOT mean a human deployed — Workers Builds RUNS wrangler.**
+  I got this wrong twice in two days, in opposite directions, off the same bad
+  assumption. First I read `modified_on` moving after a merge as proof of a CI deploy
+  (correlation as causation). Then I "corrected" it by reading
+  `deployments[].source == "wrangler"` on every deployment as proof that **no** deploy came
+  from CI — and shipped that to this file. Both are wrong, because Workers Builds deploys by
+  running the wrangler CLI inside its build container, so **every** Workers Builds deploy is
+  `source: "wrangler"`, `author_email: <account owner>`, `workers/triggered_by:
+  version_upload`. That field cannot distinguish CI from a laptop, in either direction.
+- **The discriminator is the GitHub check run, and it names the version.** `GET
+  /repos/{owner}/{repo}/commits/{sha}/check-runs` → the run named `Workers Builds: <worker>`
+  from the **Cloudflare Workers and Pages** app (app id `85455`). Its summary carries the
+  **Build ID** and the **Version ID**, so you can tie a build to a deployed version instead
+  of inferring. Measured 2026-09-29 on `53bd00a` (PR #13's merge): build
+  `59d53926-a179-45cb-a67f-9a6a57cb9428` **succeeded**, Version ID
+  `a2293181-76e4-47c3-8cf3-46f0d101b25f` — the exact version `/versions` reported as
+  `source: "wrangler"`. **Workers Builds IS deploying this Worker, and merging to `main` IS
+  a deploy.** `/builds/*` stays unreadable from an account-scoped token (12006), but this
+  check run answers "did CI deploy, and which version" without it.
+- **What CI's deploy command SKIPS is the live risk, not whether it runs.**
+  `.github/scripts/configure_builds.py` sets `deploy_command: "npx wrangler deploy"`. A bare
+  deploy works here (`wrangler.jsonc` has `main` + `assets.directory`), but `pnpm run deploy`
+  is `build && cp .assetsignore dist/ && migrate:deploy && wrangler deploy` — so **CI never
+  applies D1 migrations and never copies `.assetsignore`**. Code ships; schema does not.
+  That is why `0015` can sit unapplied while every merge deploys green.
+- **That script re-asserts its config on EVERY push to main**, POSTing a new trigger each
+  time (17 successful runs as of 2026-09-29), so a trigger edited by hand or by
+  `workers_cicd_configure` is liable to be re-created from the script's hardcoded values.
+  Change the command in the SCRIPT, not only on the trigger. Open decision:
   `docs/decisions/2026-09-29-workers-builds-is-not-deploying.md`.
 - **Near-miss when searching the docs for the build cache:** `cache: { enabled: true }` IS a
   real `wrangler.jsonc` block — but it is **Workers Caching**, runtime response caching in
