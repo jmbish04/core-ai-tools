@@ -1,68 +1,88 @@
-# Workers Builds is not deploying core-ai-tools
+# Workers Builds on core-ai-tools: it DOES deploy, but its deploy command skips migrations
 
-- **Date:** 2026-09-29
-- **Status:** open — needs Justin
+- **Date:** 2026-09-29 (corrected 2026-09-30)
+- **Status:** open — needs Justin (one decision, below)
 - **Raised by:** Claude (session_01HdpUxmx9TLnT9R47NdFPdZ)
 
-## What happened
+## Correction first: my original finding here was wrong
 
-PR #12 merged to `main` at 16:01 UTC. Two hours later the Worker's `modified_on` was
-still `2026-09-28T19:00:28Z` — the previous day. No deploy fired.
+This file previously said "Workers Builds is not deploying this Worker." **That was wrong,
+and so was the AGENTS.md rule I wrote from it.** Both errors came from one bad assumption:
+that `deployments[].source == "wrangler"` means a person ran wrangler.
 
-Reading the deployment history rather than inferring from the timestamp:
+**Workers Builds deploys by running the wrangler CLI inside its build container.** So every
+CI deploy is `source: "wrangler"`, `author_email: smart-home@126colby.com`,
+`workers/triggered_by: version_upload` — indistinguishable from a laptop deploy by that
+field, in either direction. I read the field as a negative the way I had earlier read
+`modified_on` as a positive; the field never supported either reading.
+
+**The discriminator that does work** is the GitHub check run, from the Cloudflare Workers and
+Pages app (app id `85455`):
 
 ```
-GET /accounts/{id}/workers/scripts/core-ai-tools/deployments
-→ every entry: source: "wrangler", author_email: "smart-home@126colby.com"
-  2026-09-28T19:00:26Z · 19:00:07Z · 17:29:57Z · 17:29:19Z
-last_deployed_from: "wrangler"
+GET /repos/jmbish04/core-ai-tools/commits/53bd00a…/check-runs
+→ name: "Workers Builds: core-ai-tools"   conclusion: success
+  Build ID:   59d53926-a179-45cb-a67f-9a6a57cb9428
+  Version ID: a2293181-76e4-47c3-8cf3-46f0d101b25f
 ```
 
-**Not one deployment came from a build.** So Workers Builds is either not connected, not
-triggering, or failing — and merging to `main` is not a deploy on this project.
+That Version ID is the exact version `/workers/scripts/core-ai-tools/versions` reported as
+`source: "wrangler"` at 21:09:50Z. **Workers Builds built and deployed PR #13's merge
+successfully. Merging to `main` IS a deploy on this project.**
 
-This also corrects an inference I recorded in `AGENTS.md` earlier the same week: I saw
-`modified_on` move 90 seconds after PR #11 merged and wrote that the merge "deployed
-through Workers Builds". It did not. That was a human or agent running `wrangler deploy`
-around the same moment — correlation read as causation, and it went into the briefing as
-a rule.
+## The real finding: CI deploys code, never schema
 
-## Why it matters
+`.github/scripts/configure_builds.py` (line 318) sets:
 
-PR #12 ships **no runtime code** (0 files under `src/`; it is `scripts/`, `AGENTS.md` and
-`.claude/settings.json`), so nothing is stale *because of this PR*. The cost is for the
-next change that does touch `src/`: it will merge green, look deployed, and not be.
+```python
+"build_command":  "pnpm run build",
+"deploy_command": "npx wrangler deploy",
+```
 
-## Why I could not fix or diagnose it
+A bare `npx wrangler deploy` does work here — `wrangler.jsonc` carries `main` and
+`assets.directory`. But `package.json`'s own `deploy` script is:
 
-- `pnpm run deploy` in this container: the build succeeds, then `migrate:deploy` fails —
-  `it's necessary to set a CLOUDFLARE_API_TOKEN environment variable`. No token here and
-  no `tokens` CLI (`which tokens` → nothing).
-- The deployed host is firewalled from this container: `curl https://core-ai-tools.hacolby.workers.dev/health`
-  → `CONNECT tunnel failed, response 403`.
-- The build status that would say *why* is behind `/builds/*`, which returns
-  `401 / 12006 Invalid token` for the account-scoped credential the Cloudflare connector
-  carries. It needs `CLOUDFLARE_USER_WRANGLER_API_TOKEN` (see maestro `c9c075bd52a7`).
+```
+pnpm run build && cp .assetsignore dist/.assetsignore && pnpm run migrate:deploy && npx wrangler deploy
+```
+
+So CI skips two steps a human running `pnpm run deploy` performs:
+
+1. **`migrate:deploy`** — `wrangler d1 migrations apply DB --remote`. CI has never applied a
+   migration. This is why `0015` can sit unapplied against production D1 while every merge
+   deploys green. New code booting against an un-migrated database is exactly what
+   AGENTS.md's "migrations run before the deploy" rule exists to prevent.
+2. **`cp .assetsignore dist/.assetsignore`** — without it the asset upload is not filtered as
+   the repo intends.
+
+AGENTS.md already states the rule ("Point Workers Builds at `pnpm run deploy`"); the
+autoconfig script contradicts it, and **re-POSTs a new trigger on every push to `main`** (17
+successful runs), so fixing the trigger by hand or via `workers_cicd_configure` gets
+overwritten on the next merge. The fix belongs in the script.
 
 ## The question
 
-Should Workers Builds be the deploy path for `core-ai-tools`, or is `wrangler deploy` from
-your Mac the intended mechanism?
+Should CI apply D1 migrations automatically on every merge to `main`?
 
 ## Options
 
-1. **Fix Workers Builds** (recommended). With `CLOUDFLARE_USER_WRANGLER_API_TOKEN` exported,
-   `workers_cicd_get` / `workers_builds_list` say whether a trigger exists and whether
-   builds are failing. If the deploy command is stored as the stock `npx wrangler deploy`,
-   that is the known break for this Astro SSR Worker — it must be `pnpm run deploy`.
-2. **Decide it is manual** and say so in `AGENTS.md`, so no future session reports a merge
-   as a deploy. Cheapest, but every runtime change then needs you at a terminal.
-3. **Leave it.** Next runtime change silently does not ship.
+1. **Set the script's `deploy_command` to `pnpm run deploy`** (recommended). One-line change;
+   CI then matches the documented rule and the local command exactly. `migrate:deploy`
+   applies only committed migrations, never generates one, so it is the CI-safe form
+   AGENTS.md already endorses. Cost: the next merge applies `0015` to production D1 without
+   anyone watching. It is additive (2 tables, 10 ADD COLUMN, 1 index), but it is still a
+   production schema change triggered by a merge.
+2. **`npx wrangler d1 migrations apply DB --remote && npx wrangler deploy`** — same effect,
+   skips the double build that `pnpm run deploy` causes when the build command is also set.
+   Slightly faster; duplicates the chain in two places, which is how they drift.
+3. **Leave CI code-only and apply migrations by hand.** Safest for the database, but every
+   schema change needs you at a terminal, and a merge that needs a migration will deploy
+   code against the old schema in the meantime — silently.
 
-## Default if you say nothing
+## Default if I hear nothing
 
-I will not report a merge as a deploy, and `AGENTS.md` now says merging is not a deploy
-here. Nothing else changes.
+I will not change the deploy command. AGENTS.md now records that CI deploys code but not
+schema, so no future session reports a merge as a full deploy or assumes migrations ran.
 
 ## Decision
 
