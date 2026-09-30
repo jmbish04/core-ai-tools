@@ -1,0 +1,28 @@
+# Migrations that shipped to the production D1 BEFORE the idempotency gate existed.
+#
+# AGENTS.md forbids rewriting a migration that has shipped remote: wrangler's ledger
+# records the FILENAME, not the contents, so an edited file is never re-run and the
+# databases diverge permanently. These are therefore allowed to stay non-idempotent.
+#
+# The list may only SHRINK, and only deliberately. scripts/check-migrations.mjs fails
+# if a name here becomes idempotent (someone edited a shipped migration) and fails for
+# any NEW migration that is not re-runnable.
+#
+# Generated 2026-09-30 from the 16 files that were already non-idempotent.
+
+0000_special_vindicator.sql
+0001_old_rafael_vega.sql
+0002_cool_squadron_sinister.sql
+0003_neat_captain_cross.sql
+0005_naive_wendell_vaughn.sql
+0006_first_lila_cheney.sql
+0007_tired_blazing_skull.sql
+0008_fluffy_richard_fisk.sql
+0009_ancient_unicorn.sql
+0010_curved_katie_power.sql
+0011_acoustic_sir_ram.sql
+0012_curved_albert_cleary.sql
+0014_bitter_outlaw_kid.sql
+0015_condemned_magma.sql
+0016_fat_oracle.sql
+0017_normal_earthquake.sql

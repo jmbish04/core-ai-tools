@@ -997,6 +997,47 @@ flattening bug that derivation exists to avoid.
   `workers_cicd_configure` is liable to be re-created from the script's hardcoded values.
   Change the command in the SCRIPT, not only on the trigger. Open decision:
   `docs/decisions/2026-09-29-workers-builds-is-not-deploying.md`.
+## Migration idempotency: fixed at generate time, gated at apply time
+
+- **⛔ `scripts/fix-d1-migrations.mjs` IS NOT IMPORT-SAFE.** Its CLI body runs at module
+  load, so `import { fixSql } from "./fix-d1-migrations.mjs"` immediately rewrites every
+  file in `./drizzle` (the default target). Measured 2026-09-30: a read-only measurement
+  that imported `fixSql` to count non-idempotent files silently rewrote **16 shipped
+  migrations**; it was caught only by `git status` and reverted. Never import it. Drive it
+  as a child process against a COPY, which is what `scripts/check-migrations.mjs` does.
+  It is a colby-ecosystem managed script, so the guard belongs upstream — filed as a
+  proposal, not patched here (`pull-agents` would revert it).
+- **`db:generate` now fixes, `migrate:*` now gates.** `db:generate` =
+  `drizzle-kit generate && node scripts/fix-d1-migrations.mjs`, so a new migration is
+  re-runnable at birth. `migrate:check` (`scripts/check-migrations.mjs`, repo-owned, NOT
+  managed) runs inside `migrate:local`, `migrate:remote` and `migrate:deploy` and FAILS on
+  any migration that is not re-runnable. The gate matters most in `migrate:deploy`, which
+  CI runs and which deliberately never generates — without it, a migration committed by
+  someone who skipped `db:generate` applies raw SQL to production D1.
+- **The 16 shipped migrations are grandfathered, not rewritten.** 16 of 18 committed
+  migrations are non-idempotent and have shipped remote, and rewriting a shipped migration
+  is forbidden above. They are listed in `scripts/migration-idempotency-baseline.txt`,
+  which may only SHRINK, and only deliberately. **The baseline fails BOTH ways**: a listed
+  file that has *become* idempotent means somebody edited a shipped migration, so that is
+  an error too, and the message names the rule. A one-directional check would pass through
+  the exact edit it exists to catch.
+- **32 `ALTER TABLE ... ADD COLUMN` statements cannot be guarded at all** — SQLite has no
+  `ADD COLUMN IF NOT EXISTS`. The gate reports the count so it stays visible and never
+  fails on it. Also note **FK/PK need no separate guard**: SQLite has no `ADD CONSTRAINT`,
+  so they are always inline in `CREATE TABLE`, which `CREATE TABLE IF NOT EXISTS` covers.
+  Do not add rules for them — a generic Postgres-oriented fixer injects `CREATE SCHEMA`/
+  `TYPE`/`SEQUENCE` and wrangler dies with `near "SCHEMA": syntax error`.
+- **Tests: `pnpm run test:scripts`** (plain `node`, not the workerd suite). Four planted
+  regressions, all confirmed red before being fixed: dropping the needs-fix branch,
+  dropping the edited-shipped-migration branch, dropping the stale-entry branch, and
+  pointing the fixer at the real directory instead of the copy — that last one is the
+  tempting shortcut, and it is what the byte-identical assertion exists to catch.
+- **`deploy:ci` is the CI deploy command**, not `pnpm run deploy`: the build trigger
+  already sets `build_command: pnpm run build`, so `pnpm run deploy` would build twice.
+  `deploy:ci` = `cp .assetsignore dist/.assetsignore && pnpm run migrate:deploy && npx
+  wrangler deploy` — no rebuild, migrations applied, `.assetsignore` copied. One named
+  script referenced once, so the chain is not duplicated in two places.
+
 - **Near-miss when searching the docs for the build cache:** `cache: { enabled: true }` IS a
   real `wrangler.jsonc` block — but it is **Workers Caching**, runtime response caching in
   front of every entrypoint, not the build cache. Do not reach for it thinking it is; in
