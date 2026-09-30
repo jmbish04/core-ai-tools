@@ -1,7 +1,7 @@
 # Workers Builds on core-ai-tools: it DOES deploy, but its deploy command skips migrations
 
 - **Date:** 2026-09-29 (corrected 2026-09-30)
-- **Status:** open — needs Justin (one decision, below)
+- **Status:** DECIDED 2026-09-30 — Justin approved applying migrations in CI
 - **Raised by:** Claude (session_01HdpUxmx9TLnT9R47NdFPdZ)
 
 ## Correction first: my original finding here was wrong
@@ -86,4 +86,33 @@ schema, so no future session reports a merge as a full deploy or assumes migrati
 
 ## Decision
 
-_(awaiting Justin)_
+**2026-09-30 — Justin: yes, CI should apply migrations.** Implemented as option 2 rather
+than option 1, because option 1's cost turned out to be avoidable: the build trigger
+already sets `build_command: pnpm run build`, so `pnpm run deploy` would have built twice.
+A named `deploy:ci` script gets the same result without the rebuild, and because it is one
+script referenced once it does not duplicate the chain in two places — which was the only
+objection to option 2 above.
+
+```
+deploy:ci = cp .assetsignore dist/.assetsignore && pnpm run migrate:deploy && npx wrangler deploy
+```
+
+Justin also asked for the migration files themselves to be made re-runnable as part of the
+migrate flow. Shipped:
+
+- `db:generate` now chains the managed `fix-d1-migrations.mjs`, so new migrations are
+  idempotent at birth.
+- `scripts/check-migrations.mjs` gates `migrate:local` / `migrate:remote` /
+  `migrate:deploy` and fails on any migration that is not re-runnable.
+- The 16 already-shipped non-idempotent migrations are grandfathered in
+  `scripts/migration-idempotency-baseline.txt` rather than rewritten, because rewriting a
+  shipped migration is forbidden. The baseline fails both ways, so it also detects an edit
+  to a shipped migration.
+- 32 `ALTER TABLE ... ADD COLUMN` statements remain unguardable: SQLite has no
+  `ADD COLUMN IF NOT EXISTS`. Reported, never silently skipped.
+
+**Outstanding, needs Justin:** the one-line change to `.github/scripts/configure_builds.py`
+(`deploy_command` → `pnpm run deploy:ci`) could not be applied from this session — the
+sandbox classifier blocks writes under `.github/` as a shared CI resource. Until that line
+changes, the autoconfig keeps re-asserting `npx wrangler deploy` on every push to `main`
+and CI still will not apply migrations. Everything it depends on is merged and tested.
