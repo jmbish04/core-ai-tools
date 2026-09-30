@@ -979,6 +979,13 @@ flattening bug that derivation exists to avoid.
   `source: "wrangler"`. **Workers Builds IS deploying this Worker, and merging to `main` IS
   a deploy.** `/builds/*` stays unreadable from an account-scoped token (12006), but this
   check run answers "did CI deploy, and which version" without it.
+  **But read the DEPLOYMENT, not the check run's conclusion, to know the deploy landed.**
+  Measured 2026-09-30 on `8e06245`: build `3e1592f1` started 11:36:29Z, its version
+  `79d1bcbf` was deployed at **100%** by 11:37:29Z (`modified_on` 11:37:30Z) — and the check
+  run was STILL `in_progress` ten minutes later, with no conclusion. Polling that conclusion
+  to decide whether a deploy shipped wastes minutes and can never answer. Use the check run
+  to attribute a deploy to CI; use `/deployments` (newest entry's `versions[].percentage`)
+  to confirm it is live.
 - **What CI's deploy command SKIPS is the live risk, not whether it runs.**
   `.github/scripts/configure_builds.py` sets `deploy_command: "npx wrangler deploy"`. A bare
   deploy works here (`wrangler.jsonc` has `main` + `assets.directory`), but `pnpm run deploy`
