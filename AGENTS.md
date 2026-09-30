@@ -992,10 +992,35 @@ flattening bug that derivation exists to avoid.
   is `build && cp .assetsignore dist/ && migrate:deploy && wrangler deploy` — so **CI never
   applies D1 migrations and never copies `.assetsignore`**. Code ships; schema does not.
   That is why `0015` can sit unapplied while every merge deploys green.
-- **That script re-asserts its config on EVERY push to main**, POSTing a new trigger each
-  time (17 successful runs as of 2026-09-29), so a trigger edited by hand or by
-  `workers_cicd_configure` is liable to be re-created from the script's hardcoded values.
-  Change the command in the SCRIPT, not only on the trigger. Open decision:
+- **⛔ `configure_builds.py` IS A NO-OP IN THIS REPO, and I claimed the opposite here.**
+  I wrote that it "re-asserts its config on EVERY push to main, POSTing a new trigger each
+  time (17 successful runs)". Wrong — inferred from 17 *successful* job runs without reading
+  `main()`. It succeeds by **skipping**:
+
+      target_name   = github_repository.rsplit("/", 1)[-1]   # core-ai-tools
+      template_name = detect_template_name()                 # package.json name: core-ai-tools
+      if template_name == target_name:
+          print("Template repository detected; skipping autoconfiguration.")
+          return
+
+  Measured 2026-09-30 in the `configure-ci-cd` job log for `e21e447`: the whole output is
+  `Template repository detected; skipping autoconfiguration.` Because this repo's
+  `package.json` name EQUALS its GitHub repo name, the guard fires on every push, so
+  **`register_workers_builds` has never run here** and nothing in that file has ever
+  reached Cloudflare. A green `configure-ci-cd` check means "skipped", not "configured".
+- **So editing `deploy_command` in that script does NOT change this Worker's CI.** The
+  change is still correct and still committed — for a repo *generated from* the template,
+  where the names differ and the function does run — but the live trigger for
+  `core-ai-tools` was created by some other route (dashboard, most likely) and only a
+  Cloudflare-side change touches it: the dashboard, `workers_cicd_configure`, or
+  `PATCH /builds/triggers/{uuid}`. From a session without a user-scoped token all three are
+  out (12006 / malformed MCP result), so this is a hand-back, not a code change.
+- **A push that touches only `.github/**` may not build at all.** Measured 2026-09-30:
+  PR #16 (package.json + scripts/ + AGENTS.md) produced a Workers Builds check run within
+  ~50s; PR #17 (`.github/scripts/configure_builds.py` only) produced NONE after 6.5 minutes,
+  and no new deployment. Leading hypothesis is a path filter on the real trigger, UNCONFIRMED
+  because `/builds/*` cannot be read here. Do not read "no build" as "CI is broken" without
+  checking what paths the push touched. Open decision:
   `docs/decisions/2026-09-29-workers-builds-is-not-deploying.md`.
 ## Migration idempotency: fixed at generate time, gated at apply time
 

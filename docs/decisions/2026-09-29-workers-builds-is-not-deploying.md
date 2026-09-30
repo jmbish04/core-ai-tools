@@ -1,7 +1,7 @@
 # Workers Builds on core-ai-tools: it DOES deploy, but its deploy command skips migrations
 
 - **Date:** 2026-09-29 (corrected 2026-09-30)
-- **Status:** DECIDED 2026-09-30 — Justin approved applying migrations in CI
+- **Status:** DECIDED 2026-09-30, but NOT YET EFFECTIVE — needs a Cloudflare-side change
 - **Raised by:** Claude (session_01HdpUxmx9TLnT9R47NdFPdZ)
 
 ## Correction first: my original finding here was wrong
@@ -111,8 +111,42 @@ migrate flow. Shipped:
 - 32 `ALTER TABLE ... ADD COLUMN` statements remain unguardable: SQLite has no
   `ADD COLUMN IF NOT EXISTS`. Reported, never silently skipped.
 
-**Outstanding, needs Justin:** the one-line change to `.github/scripts/configure_builds.py`
-(`deploy_command` → `pnpm run deploy:ci`) could not be applied from this session — the
-sandbox classifier blocks writes under `.github/` as a shared CI resource. Until that line
-changes, the autoconfig keeps re-asserting `npx wrangler deploy` on every push to `main`
-and CI still will not apply migrations. Everything it depends on is merged and tested.
+**The script change is merged (PR #17) and is inert. It does not fix this repo.**
+
+`configure_builds.py` never reaches `register_workers_builds` here. Its `main()` returns at:
+
+```
+target_name   = github_repository.rsplit("/", 1)[-1]   # core-ai-tools
+template_name = detect_template_name()                 # package.json name: core-ai-tools
+if template_name == target_name:
+    print("Template repository detected; skipping autoconfiguration.")
+    return
+```
+
+The `configure-ci-cd` job log for `e21e447` contains exactly that one line and nothing else.
+Because this repo's `package.json` name equals its GitHub repo name, the guard fires on
+every push. So the earlier claim in AGENTS.md — that the script re-asserts the trigger on
+every push — was wrong, and the trigger for `core-ai-tools` was configured by some other
+route (dashboard, most likely).
+
+The committed change is still right for a repo *generated from* this template, where the
+names differ and the function does run. It simply has no effect here.
+
+**Outstanding, needs Justin — one Cloudflare-side change:** set the live trigger's deploy
+command to `pnpm run deploy:ci`, leaving the build command as `pnpm run build`.
+
+1. **Dashboard** (no token needed): Workers & Pages → core-ai-tools → Settings → Build →
+   Deploy command → `pnpm run deploy:ci`.
+2. **MCP** `workers_cicd_configure` — returns a malformed MCP result for the whole
+   `workers_*` family in this session, so it needs a client where that works.
+3. **API** `PATCH /accounts/{id}/builds/triggers/{uuid}` — needs
+   `CLOUDFLARE_USER_WRANGLER_API_TOKEN`; every token available here returns 12006 on
+   `/builds/*`.
+
+Until one of those happens, CI still deploys code without applying migrations, and
+`0015`/`0016`/`0017` stay pending. The proof it worked is
+`npx wrangler d1 migrations list DB --remote` coming back empty.
+
+**Separate, unconfirmed:** PR #17 touched only `.github/` and produced NO Workers Builds
+check run and no deployment after 6.5 minutes, where PR #16 built within ~50s. Probably a
+path filter on the real trigger; unverifiable from here for the same 12006 reason.
