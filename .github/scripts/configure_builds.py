@@ -314,8 +314,14 @@ def register_workers_builds(account_id: str, cf_token: str, github_repository: s
         "repo_connection_uuid": repo_connection_uuid,
         "build_token_uuid": selected_build_token_uuid,
         "trigger_name": os.environ.get("CLOUDFLARE_BUILD_TRIGGER_NAME", DEFAULT_TRIGGER_NAME),
+        # `npx wrangler deploy` alone ships CODE and never SCHEMA: it skips
+        # migrate:deploy, so no merge ever applied a D1 migration and new code could
+        # boot against an un-migrated database. `deploy:ci` copies .assetsignore,
+        # applies COMMITTED migrations (migrate:deploy never generates one — see
+        # AGENTS.md on why CI must not run migrate:remote), then deploys. It does not
+        # rebuild, because build_command above already did.
         "build_command": "pnpm run build",
-        "deploy_command": "npx wrangler deploy",
+        "deploy_command": "pnpm run deploy:ci",
         "root_directory": "/",
         "branch_includes": ["main"],
         "branch_excludes": [],
