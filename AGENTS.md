@@ -1056,6 +1056,25 @@ flattening bug that derivation exists to avoid.
   claim that "the token this connector forwards is user-scoped" is therefore FALSE for
   `/builds/*`; changing a build trigger needs the dashboard or
   `CLOUDFLARE_USER_WRANGLER_API_TOKEN`.
+- **⛔ `CLOUDFLARE_USER_WRANGLER_API_TOKEN` IS NOT USER-SCOPED HERE — the note above naming
+  it as the fix is wrong for this environment.** It IS present in a cloud session's env (53
+  chars). Tested directly with curl, bypassing the MCP, 2026-09-30:
+
+      CLOUDFLARE_USER_WRANGLER_API_TOKEN   /user/tokens/verify=401  /workers/scripts=200  /builds/*=12006
+      CLOUDFLARE_API_TOKEN                 /user/tokens/verify=401  /workers/scripts=200  /builds/*=12006
+
+  Two DIFFERENT token values (different sha256), identical behaviour. **`401` on
+  `/user/tokens/verify` together with `200` on account endpoints is the signature of an
+  ACCOUNT-scoped token**, so the variable named `..._USER_...` is misnamed in this
+  environment — whatever maestro task `c9c075bd52a7` measured on the Mac, it is not what
+  this container holds. So `/builds/*` is unreachable here by ANY available route: the
+  connector, `CLOUDFLARE_API_TOKEN`, and the misnamed user token all 12006, and the
+  `workers_cicd_*` tools are malformed. Changing a build trigger needs the dashboard, or a
+  genuinely user-scoped token exported into the session.
+  Filed for a real fix rather than left as folklore: maestro `cloudflare-api-mcp`
+  **`c34778a38547`** (malformed `workers_*` results, high) and **`f14b1bca77ba`**
+  (`/builds/*` 12006 + the misleading error text, medium), both under plan
+  `88da93328bb4`. **Do not re-derive this; check those tasks first.**
 - **Corollary for anyone chasing a "broken" deploy:** check `/deployments` FIRST and give it
   a few minutes. Two of my four conclusions today about whether CI deployed were wrong, both
   from reading GitHub check runs instead of Cloudflare's own deployment list. Open decision:
