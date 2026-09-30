@@ -1015,12 +1015,24 @@ flattening bug that derivation exists to avoid.
   Cloudflare-side change touches it: the dashboard, `workers_cicd_configure`, or
   `PATCH /builds/triggers/{uuid}`. From a session without a user-scoped token all three are
   out (12006 / malformed MCP result), so this is a hand-back, not a code change.
-- **A push that touches only `.github/**` may not build at all.** Measured 2026-09-30:
-  PR #16 (package.json + scripts/ + AGENTS.md) produced a Workers Builds check run within
-  ~50s; PR #17 (`.github/scripts/configure_builds.py` only) produced NONE after 6.5 minutes,
-  and no new deployment. Leading hypothesis is a path filter on the real trigger, UNCONFIRMED
-  because `/builds/*` cannot be read here. Do not read "no build" as "CI is broken" without
-  checking what paths the push touched. Open decision:
+- **⛔ A MISSING check run does NOT mean a missing build. I guessed a path filter and was
+  wrong within ten minutes.** Measured 2026-09-30: PR #17 (`.github/` only) and PR #18
+  (`AGENTS.md` + `docs/` only) each produced **NO** `Workers Builds` check run at all — five
+  and six minutes in, only the three GitHub Actions checks. I recorded "a push touching only
+  `.github/**` may not build" as the hypothesis; PR #18 touched no `.github/` file and
+  behaved identically, which falsifies it. Then a deployment landed anyway: version
+  `017c96b1` at **14:31:11Z**, three minutes after the #18 merge, with `modified_on`
+  14:31:13Z. **The build ran and deployed with no check run posted for the commit.**
+- **So `/deployments` is not merely the better liveness signal, it is the ONLY reliable one.**
+  The check run fails in both directions on this Worker: on `8e06245` it sat `in_progress`
+  for ten minutes after its deploy was already live at 100%, and on `e21e447`/`7c654c9` it
+  never appeared while a deploy still landed. Use it to ATTRIBUTE a deploy to CI when it is
+  present; never treat its absence, or its lack of a conclusion, as evidence about whether a
+  deploy happened. Poll `GET /accounts/{id}/workers/scripts/core-ai-tools/deployments` and
+  read the newest entry's `created_on` + `versions[].percentage`.
+- **Corollary for anyone chasing a "broken" deploy:** check `/deployments` FIRST and give it
+  a few minutes. Two of my four conclusions today about whether CI deployed were wrong, both
+  from reading GitHub check runs instead of Cloudflare's own deployment list. Open decision:
   `docs/decisions/2026-09-29-workers-builds-is-not-deploying.md`.
 ## Migration idempotency: fixed at generate time, gated at apply time
 

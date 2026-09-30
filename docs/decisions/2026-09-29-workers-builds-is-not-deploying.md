@@ -147,6 +147,13 @@ Until one of those happens, CI still deploys code without applying migrations, a
 `0015`/`0016`/`0017` stay pending. The proof it worked is
 `npx wrangler d1 migrations list DB --remote` coming back empty.
 
-**Separate, unconfirmed:** PR #17 touched only `.github/` and produced NO Workers Builds
-check run and no deployment after 6.5 minutes, where PR #16 built within ~50s. Probably a
-path filter on the real trigger; unverifiable from here for the same 12006 reason.
+**Separate, and my hypothesis here was wrong — corrected the same hour.** I first wrote
+that PR #17 (`.github/` only) produced no build and guessed a path filter. PR #18 touched no
+`.github/` file and behaved identically, so that is falsified. What actually happens: the
+`Workers Builds` check run is unreliable on this Worker in BOTH directions — absent entirely
+for `e21e447` and `7c654c9`, and stuck `in_progress` for ten minutes on `8e06245` after its
+deploy was live — while the deploy itself still lands. Version `017c96b1` deployed at
+14:31:11Z, three minutes after the #18 merge, with no check run for the commit.
+
+So CI **is** building and deploying. `/deployments` is the only reliable signal; never read a
+missing or inconclusive check run as evidence about whether a deploy happened.
