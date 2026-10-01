@@ -144,6 +144,21 @@ const check = (name, cond, detail) => {
     /CLOUDFLARE_USER_WRANGLER_API_TOKEN/.test(out),
     out,
   );
+  // The name is NOT a guarantee of the scope: measured 2026-09-30, a cloud session's
+  // CLOUDFLARE_USER_WRANGLER_API_TOKEN is itself account-scoped and lands straight back
+  // on this exit-3 path. A message that names only that variable sends the reader in a
+  // loop, so it must also say the name is not evidence AND give a route that does not
+  // need a token. Asserted because an unenforced caveat is prose a later edit drops.
+  check(
+    "warns that the variable name does not prove the scope",
+    /do not trust that name|not a guarantee|verify the scope/i.test(out),
+    out,
+  );
+  check(
+    "offers a tokenless route out of the loop",
+    /dashboard/i.test(out) && /workers_cicd_configure/.test(out),
+    out,
+  );
 }
 
 // Case 3 — an unknown Worker name fails before any builds call.

@@ -1,22 +1,30 @@
-# Workers Builds on core-ai-tools: it DOES deploy, but its deploy command skips migrations
+# Workers Builds on core-ai-tools: it deploys, and it was already applying migrations
 
-- **Date:** 2026-09-29 (corrected 2026-09-30)
-- **Status:** DECIDED 2026-09-30, but NOT YET EFFECTIVE — needs a Cloudflare-side change
+- **Date:** 2026-09-29 (corrected 2026-09-30, corrected again 2026-10-01)
+- **Status:** DECIDED and IMPLEMENTED — the live trigger now runs `pnpm run deploy:ci`
 - **Raised by:** Claude (session_01HdpUxmx9TLnT9R47NdFPdZ)
 
-## Correction first: my original finding here was wrong
+## Read this before the rest: both of my original findings were wrong
 
-This file previously said "Workers Builds is not deploying this Worker." **That was wrong,
-and so was the AGENTS.md rule I wrote from it.** Both errors came from one bad assumption:
-that `deployments[].source == "wrangler"` means a person ran wrangler.
+This file has been wrong twice, in two different ways, and the corrections are the only
+part of it worth keeping. Stated up front so nobody acts on a dead premise again:
 
+1. **"Workers Builds is not deploying this Worker."** Wrong. It deploys every merge to
+   `main`.
+2. **"CI deploys code but never schema."** Also wrong, and this is the bigger error.
+   The live trigger's deploy command was **`pnpm run deploy`**, which includes
+   `migrate:deploy`. **CI has been applying D1 migrations on every deploy all along.**
+
+### Why #1 was wrong
+
+It came from reading `deployments[].source == "wrangler"` as "a person ran wrangler".
 **Workers Builds deploys by running the wrangler CLI inside its build container.** So every
 CI deploy is `source: "wrangler"`, `author_email: smart-home@126colby.com`,
 `workers/triggered_by: version_upload` — indistinguishable from a laptop deploy by that
-field, in either direction. I read the field as a negative the way I had earlier read
-`modified_on` as a positive; the field never supported either reading.
+field, in either direction. I had earlier read `modified_on` moving as a positive; the same
+class of mistake, opposite sign.
 
-**The discriminator that does work** is the GitHub check run, from the Cloudflare Workers and
+The discriminator that does work is the GitHub check run from the Cloudflare Workers and
 Pages app (app id `85455`):
 
 ```
@@ -27,95 +35,21 @@ GET /repos/jmbish04/core-ai-tools/commits/53bd00a…/check-runs
 ```
 
 That Version ID is the exact version `/workers/scripts/core-ai-tools/versions` reported as
-`source: "wrangler"` at 21:09:50Z. **Workers Builds built and deployed PR #13's merge
-successfully. Merging to `main` IS a deploy on this project.**
+`source: "wrangler"`. **Workers Builds built and deployed PR #13's merge. Merging to `main`
+IS a deploy on this project.**
 
-## The real finding: CI deploys code, never schema
+### Why #2 was wrong, and the lesson that generalises
 
-`.github/scripts/configure_builds.py` (line 318) sets:
+I read these two lines out of `.github/scripts/configure_builds.py` and treated them as
+live Cloudflare config:
 
 ```python
 "build_command":  "pnpm run build",
 "deploy_command": "npx wrangler deploy",
 ```
 
-A bare `npx wrangler deploy` does work here — `wrangler.jsonc` carries `main` and
-`assets.directory`. But `package.json`'s own `deploy` script is:
-
-```
-pnpm run build && cp .assetsignore dist/.assetsignore && pnpm run migrate:deploy && npx wrangler deploy
-```
-
-So CI skips two steps a human running `pnpm run deploy` performs:
-
-1. **`migrate:deploy`** — `wrangler d1 migrations apply DB --remote`. CI has never applied a
-   migration. NOTE: this consequence is potential, not current — measured 2026-09-30, all
-   18 migrations including `0015`/`0016`/`0017` ARE applied on the production D1 (read from
-   `d1_migrations` via the D1 query API). Someone applied them by hand. The gap matters for
-   the next migration, not for a backlog. New code booting against an un-migrated database is exactly what
-   AGENTS.md's "migrations run before the deploy" rule exists to prevent.
-2. **`cp .assetsignore dist/.assetsignore`** — without it the asset upload is not filtered as
-   the repo intends.
-
-AGENTS.md already states the rule ("Point Workers Builds at `pnpm run deploy`"); the
-autoconfig script contradicts it, and **re-POSTs a new trigger on every push to `main`** (17
-successful runs), so fixing the trigger by hand or via `workers_cicd_configure` gets
-overwritten on the next merge. The fix belongs in the script.
-
-## The question
-
-Should CI apply D1 migrations automatically on every merge to `main`?
-
-## Options
-
-1. **Set the script's `deploy_command` to `pnpm run deploy`** (recommended). One-line change;
-   CI then matches the documented rule and the local command exactly. `migrate:deploy`
-   applies only committed migrations, never generates one, so it is the CI-safe form
-   AGENTS.md already endorses. Cost: the next merge applies `0015` to production D1 without
-   anyone watching. It is additive (2 tables, 10 ADD COLUMN, 1 index), but it is still a
-   production schema change triggered by a merge.
-2. **`npx wrangler d1 migrations apply DB --remote && npx wrangler deploy`** — same effect,
-   skips the double build that `pnpm run deploy` causes when the build command is also set.
-   Slightly faster; duplicates the chain in two places, which is how they drift.
-3. **Leave CI code-only and apply migrations by hand.** Safest for the database, but every
-   schema change needs you at a terminal, and a merge that needs a migration will deploy
-   code against the old schema in the meantime — silently.
-
-## Default if I hear nothing
-
-I will not change the deploy command. AGENTS.md now records that CI deploys code but not
-schema, so no future session reports a merge as a full deploy or assumes migrations ran.
-
-## Decision
-
-**2026-09-30 — Justin: yes, CI should apply migrations.** Implemented as option 2 rather
-than option 1, because option 1's cost turned out to be avoidable: the build trigger
-already sets `build_command: pnpm run build`, so `pnpm run deploy` would have built twice.
-A named `deploy:ci` script gets the same result without the rebuild, and because it is one
-script referenced once it does not duplicate the chain in two places — which was the only
-objection to option 2 above.
-
-```
-deploy:ci = cp .assetsignore dist/.assetsignore && pnpm run migrate:deploy && npx wrangler deploy
-```
-
-Justin also asked for the migration files themselves to be made re-runnable as part of the
-migrate flow. Shipped:
-
-- `db:generate` now chains the managed `fix-d1-migrations.mjs`, so new migrations are
-  idempotent at birth.
-- `scripts/check-migrations.mjs` gates `migrate:local` / `migrate:remote` /
-  `migrate:deploy` and fails on any migration that is not re-runnable.
-- The 16 already-shipped non-idempotent migrations are grandfathered in
-  `scripts/migration-idempotency-baseline.txt` rather than rewritten, because rewriting a
-  shipped migration is forbidden. The baseline fails both ways, so it also detects an edit
-  to a shipped migration.
-- 32 `ALTER TABLE ... ADD COLUMN` statements remain unguardable: SQLite has no
-  `ADD COLUMN IF NOT EXISTS`. Reported, never silently skipped.
-
-**The script change is merged (PR #17) and is inert. It does not fix this repo.**
-
-`configure_builds.py` never reaches `register_workers_builds` here. Its `main()` returns at:
+Then — in this same document — I proved that script **never executes in this repo**. Its
+`main()` returns at the template guard:
 
 ```
 target_name   = github_repository.rsplit("/", 1)[-1]   # core-ai-tools
@@ -125,42 +59,123 @@ if template_name == target_name:
     return
 ```
 
-The `configure-ci-cd` job log for `e21e447` contains exactly that one line and nothing else.
-Because this repo's `package.json` name equals its GitHub repo name, the guard fires on
-every push. So the earlier claim in AGENTS.md — that the script re-asserts the trigger on
-every push — was wrong, and the trigger for `core-ai-tools` was configured by some other
-route (dashboard, most likely).
+The `configure-ci-cd` job log for `e21e447` is exactly that one line and nothing else.
+And I **kept quoting the dead file's values as live config anyway**, in the same file that
+killed it.
 
-The committed change is still right for a repo *generated from* this template, where the
-names differ and the function does run. It simply has no effect here.
+> **Proving a source dead does not retract what you already derived from it.** Every claim
+> descended from a dead source has to be re-derived or dropped, in the same pass that kills
+> the source. That is the reusable lesson from this whole episode.
 
-**Outstanding, needs Justin — one Cloudflare-side change:** set the live trigger's deploy
-command to `pnpm run deploy:ci`, leaving the build command as `pnpm run build`.
+The session that owns `cloudflare-api-mcp` read the **actual** trigger on 2026-09-30:
 
-1. **Dashboard** (no token needed): Workers & Pages → core-ai-tools → Settings → Build →
-   Deploy command → `pnpm run deploy:ci`.
-2. **MCP** `workers_cicd_configure` — returns a malformed MCP result for the whole
-   `workers_*` family in this session, so it needs a client where that works.
-3. **API** `PATCH /accounts/{id}/builds/triggers/{uuid}` — needs
-   `CLOUDFLARE_USER_WRANGLER_API_TOKEN`; every token available here returns 12006 on
-   `/builds/*`.
+```
+build_command    ""                   <- EMPTY, not "pnpm run build"
+deploy_command   "pnpm run deploy"    <- not "npx wrangler deploy"
+```
 
-Until one of those happens, CI deploys code without applying migrations. **Nothing is
-pending right now** — all 18 migrations are applied — so this is no longer urgent; it is
-insurance for the next schema change. Check the ledger without leaving a sandbox:
+`pnpm run deploy` is `build && cp .assetsignore dist/ && migrate:deploy && wrangler deploy`,
+so CI was already building, copying `.assetsignore`, and applying migrations. That is why
+all 18 migrations are applied on the production D1 with nobody having run `migrate:remote`
+by hand — my "someone applied them manually" was an invention to explain data I had
+mis-modelled.
+
+### That error nearly broke CI
+
+I asked for a **one-field** change (`deploy_command` → `pnpm run deploy:ci`), justified by
+"`build_command` already runs `pnpm run build`". It was empty. `deploy:ci` deliberately does
+not build and opens with `cp .assetsignore dist/.assetsignore`, so the single-field write
+would have left nothing building and failed on its first command — while the config write
+itself looked successful. The `cloudflare-api-mcp` session caught it and set both:
+
+```
+build_command    ""                 ->  "pnpm run build"
+deploy_command   "pnpm run deploy"  ->  "pnpm run deploy:ci"
+```
+
+Rollback, if ever needed: `build_command ""` / `deploy_command "pnpm run deploy"`.
+
+## The question that was actually asked
+
+Should CI apply D1 migrations automatically on every merge to `main`?
+
+(It already was. The question stands as asked, and the answer below is what shipped.)
+
+## Options as presented
+
+1. **`deploy_command: pnpm run deploy`** — matches the documented rule and the local command.
+2. **A named `deploy:ci` script** — same effect without a second build when `build_command`
+   is also set; one script referenced once, so the chain is not duplicated.
+3. **Leave CI code-only and migrate by hand** — safest for the database, but every schema
+   change needs someone at a terminal and a merge deploys code against the old schema.
+
+## Decision
+
+**2026-09-30 — Justin: yes, CI should apply migrations.** Shipped as option 2:
+
+```
+deploy:ci = cp .assetsignore dist/.assetsignore && pnpm run migrate:deploy && npx wrangler deploy
+```
+
+**Implemented 2026-10-01** by the `cloudflare-api-mcp` session, which set `build_command`
+and `deploy_command` together (see above). Net behavioural change: **one fewer redundant
+build.** Migrations were already being applied, so the migration half of this decision was
+already true before it was decided — stated plainly rather than claimed as a fix.
+
+Justin also asked for the migration files themselves to be made re-runnable. Shipped:
+
+- `db:generate` chains the managed `fix-d1-migrations.mjs`, so new migrations are idempotent
+  at birth.
+- `scripts/check-migrations.mjs` gates `migrate:local` / `migrate:remote` / `migrate:deploy`
+  and fails on any migration that is not re-runnable. It drives the managed fixer as a child
+  process against a **copy** — importing it rewrites every file in `drizzle/` as a side
+  effect, which it did once to 16 shipped migrations during a read-only measurement.
+- The 16 already-shipped non-idempotent migrations are grandfathered in
+  `scripts/migration-idempotency-baseline.txt` rather than rewritten, because rewriting a
+  shipped migration is forbidden. The baseline fails **both ways**, so it also detects an
+  edit to a shipped migration.
+- 32 `ALTER TABLE ... ADD COLUMN` statements remain unguardable: SQLite has no
+  `ADD COLUMN IF NOT EXISTS`. Reported, never silently skipped.
+
+**The `configure_builds.py` change (PR #17) is committed and inert here.** It is still right
+for a repo *generated from* this template, where the names differ and the function runs. It
+has never affected `core-ai-tools`, whose trigger was created by some other route (the
+dashboard, most likely).
+
+## Who can change a build trigger — corrected
+
+An earlier version of this file said a trigger change "needs the dashboard". Wrong, and the
+`cloudflare-api-mcp` session disproved it by doing it:
+
+- **`workers_cicd_configure` works** — it is served **locally** by that Worker and calls
+  Cloudflare with a token that does reach `/builds/*`.
+- The `12006 Invalid token` wall measured from this session is only about **`execute`**,
+  which is forwarded **upstream** carrying an account-scoped token. Right surface, wrong
+  generalisation.
+- The whole `workers_*` tool family returns a result this session's client rejects
+  (`missing required resultType`, MCP revision 2026-07-28). The other session could not
+  reproduce it, which locates the fault **client-side, in this session**, not in the Worker.
+  Filed as maestro `c34778a38547`; `/builds/*` token confusion is `f14b1bca77ba`.
+
+## Verification still owed
+
+The config was proved by **reading it back**, not by running a build. The first build on
+`main` after 2026-10-01 is the real proof. Confirm it the only reliable way:
+
+```
+GET /accounts/{id}/workers/scripts/core-ai-tools/deployments
+→ newest entry's created_on + versions[].percentage == 100
+```
+
+**Never read a missing or inconclusive `Workers Builds` check run as evidence about whether
+a deploy happened.** It is unreliable on this Worker in both directions — absent entirely
+for `e21e447` and `7c654c9`, stuck `in_progress` for ten minutes on `8e06245` after its
+deploy was already live at 100%. Use the check run to **attribute** a deploy to CI; use
+`/deployments` to confirm one landed.
+
+The migration ledger is readable from a sandbox, without a user-scoped token:
 
 ```
 POST /accounts/{id}/d1/database/98b592ba-c5a3-47f4-950d-77a108b8d613/query
-{ "sql": "SELECT name FROM d1_migrations ORDER BY id" }
+{ "sql": "SELECT name, applied_at FROM d1_migrations ORDER BY id" }
 ```
-
-**Separate, and my hypothesis here was wrong — corrected the same hour.** I first wrote
-that PR #17 (`.github/` only) produced no build and guessed a path filter. PR #18 touched no
-`.github/` file and behaved identically, so that is falsified. What actually happens: the
-`Workers Builds` check run is unreliable on this Worker in BOTH directions — absent entirely
-for `e21e447` and `7c654c9`, and stuck `in_progress` for ten minutes on `8e06245` after its
-deploy was live — while the deploy itself still lands. Version `017c96b1` deployed at
-14:31:11Z, three minutes after the #18 merge, with no check run for the commit.
-
-So CI **is** building and deploying. `/deployments` is the only reliable signal; never read a
-missing or inconclusive check run as evidence about whether a deploy happened.

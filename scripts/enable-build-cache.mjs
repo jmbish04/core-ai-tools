@@ -49,6 +49,17 @@
  * user-scoped one is the credential maestro task c9c075bd52a7 measured as returning
  * 200 there, after four other account tokens also failed.
  *
+ *   ⛔ BUT THAT NAME IS NOT A GUARANTEE OF THE SCOPE. Measured 2026-09-30 in a cloud
+ *   session: the `CLOUDFLARE_USER_WRANGLER_API_TOKEN` in that container is a DIFFERENT
+ *   value (different sha256) and is itself ACCOUNT-scoped — 401 on /user/tokens/verify,
+ *   200 on /workers/scripts, 12006 on /builds/*. So `..._USER_...` is misnamed there, and
+ *   this script exits 3 with the message below rather than succeeding. Verify the scope,
+ *   do not trust the variable name: 401 on /user/tokens/verify WITH 200 on an account
+ *   endpoint is the signature of an account-scoped token. From a container where every
+ *   available token is account-scoped, use the dashboard or the cloudflare-api-mcp
+ *   `workers_cicd_configure` tool (served locally by that Worker, which holds a token that
+ *   does reach /builds/*) — not this script.
+ *
  * Flags:
  *   --worker <name>  Worker to configure (default: core-ai-tools)
  *   --disable        Set build_caching_enabled to false instead of true
@@ -146,8 +157,11 @@ try {
     console.error(
       `The Builds API rejected this token (12006), but /workers/scripts accepted it ` +
         `just now — so the token is valid and ACCOUNT-scoped, and /builds/* needs a ` +
-        `USER-scoped one. Do NOT rotate this token; use the user-scoped one:\n` +
+        `USER-scoped one. Do NOT rotate this token; use a genuinely user-scoped one:\n` +
         `  CLOUDFLARE_API_TOKEN=$(tokens show CLOUDFLARE_USER_WRANGLER_API_TOKEN --value-only)\n` +
+        `(verify the scope, do not trust that name — in a cloud session that variable is ` +
+        `itself account-scoped and lands right back here; from there, use the dashboard ` +
+        `or cloudflare-api-mcp's workers_cicd_configure instead.)\n` +
         `  ${err.message}`,
     );
     process.exit(3);

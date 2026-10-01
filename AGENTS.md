@@ -989,14 +989,34 @@ flattening bug that derivation exists to avoid.
   to decide whether a deploy shipped wastes minutes and can never answer. Use the check run
   to attribute a deploy to CI; use `/deployments` (newest entry's `versions[].percentage`)
   to confirm it is live.
-- **What CI's deploy command SKIPS is the live risk, not whether it runs.**
-  `.github/scripts/configure_builds.py` sets `deploy_command: "npx wrangler deploy"`. A bare
-  deploy works here (`wrangler.jsonc` has `main` + `assets.directory`), but `pnpm run deploy`
-  is `build && cp .assetsignore dist/ && migrate:deploy && wrangler deploy` — so **CI never
-  applies D1 migrations and never copies `.assetsignore`**. Code ships; schema does not.
-  Note the consequence is POTENTIAL, not current: `0015`/`0016`/`0017` are all applied
-  (someone ran `migrate:remote` by hand), so nothing is pending today. The gap matters for
-  the NEXT migration, not for a backlog.
+- **⛔ "CI never applies D1 migrations" WAS FALSE, and it is the biggest thing I got wrong
+  here. The live trigger never ran `npx wrangler deploy`.** I read that string out of
+  `.github/scripts/configure_builds.py` and treated it as live config. The session that
+  owns `cloudflare-api-mcp` read the ACTUAL trigger on 2026-09-30 and reported
+  `deploy_command: "pnpm run deploy"` with **`build_command` EMPTY**. `pnpm run deploy` is
+  `build && cp .assetsignore dist/ && migrate:deploy && wrangler deploy` — so **CI has been
+  applying migrations on every deploy all along**, which is why all 18 are applied with
+  nobody having run `migrate:remote` by hand. My "someone did it manually" was an invention
+  to explain data I had mis-modelled.
+- **The reusable lesson, and it is the one to carry: proving a source DEAD does not retract
+  what you already derived from it.** I proved `configure_builds.py` never executes (it
+  returns at the template guard), wrote that discovery into this file — and in the same
+  document kept quoting that file's `deploy_command` and `build_command` as live config.
+  Every claim descended from a dead source has to be re-derived or dropped, in the same pass
+  that kills the source.
+- **That error nearly broke CI.** I asked for a ONE-field change (`deploy_command` →
+  `pnpm run deploy:ci`), justified by "`build_command` already runs `pnpm run build`". It was
+  empty. `deploy:ci` deliberately omits the build and opens with
+  `cp .assetsignore dist/.assetsignore`, so the single-field change would have left nothing
+  building and failed on the first command — while the config write looked successful. The
+  `cloudflare-api-mcp` session caught it and set BOTH fields:
+
+      build_command    ""                 ->  "pnpm run build"
+      deploy_command   "pnpm run deploy"  ->  "pnpm run deploy:ci"
+
+  Net effect of the whole exercise: migrations were already applied by CI, and the change is
+  a no-op on behaviour apart from skipping one redundant build. Rollback is
+  `build_command ""` / `deploy_command "pnpm run deploy"`.
 - **⛔ `configure_builds.py` IS A NO-OP IN THIS REPO, and I claimed the opposite here.**
   I wrote that it "re-asserts its config on EVERY push to main, POSTing a new trigger each
   time (17 successful runs)". Wrong — inferred from 17 *successful* job runs without reading
@@ -1069,16 +1089,24 @@ flattening bug that derivation exists to avoid.
   environment — whatever maestro task `c9c075bd52a7` measured on the Mac, it is not what
   this container holds. So `/builds/*` is unreachable here by ANY available route: the
   connector, `CLOUDFLARE_API_TOKEN`, and the misnamed user token all 12006, and the
-  `workers_cicd_*` tools are malformed. Changing a build trigger needs the dashboard, or a
-  genuinely user-scoped token exported into the session.
+  `workers_cicd_*` tools are malformed FOR THIS CLIENT.
+  **But "changing a build trigger needs the dashboard" was wrong** — the session that owns
+  `cloudflare-api-mcp` corrected it on 2026-10-01 and then did it: `workers_cicd_configure`
+  is served LOCALLY by that Worker and calls Cloudflare with a user token that DOES reach
+  `/builds/*`. The 12006 above is only about `execute`, which is forwarded UPSTREAM carrying
+  the account token. Right surface, wrong generalisation — so from a client where the result
+  envelope validates, the dedicated tools are the way to configure CI/CD, and the dashboard
+  is not needed.
   Filed for a real fix rather than left as folklore: maestro `cloudflare-api-mcp`
   **`c34778a38547`** (malformed `workers_*` results, high) and **`f14b1bca77ba`**
   (`/builds/*` 12006 + the misleading error text, medium), both under plan
   `88da93328bb4`. **Do not re-derive this; check those tasks first.**
 - **Corollary for anyone chasing a "broken" deploy:** check `/deployments` FIRST and give it
   a few minutes. Two of my four conclusions today about whether CI deployed were wrong, both
-  from reading GitHub check runs instead of Cloudflare's own deployment list. Open decision:
-  `docs/decisions/2026-09-29-workers-builds-is-not-deploying.md`.
+  from reading GitHub check runs instead of Cloudflare's own deployment list. The whole
+  episode, including both false findings and the lesson, is written up in
+  `docs/decisions/2026-09-29-workers-builds-is-not-deploying.md` — **now CLOSED**: the live
+  trigger runs `build_command: pnpm run build` + `deploy_command: pnpm run deploy:ci`.
 ## Migration idempotency: fixed at generate time, gated at apply time
 
 - **⛔ `scripts/fix-d1-migrations.mjs` IS NOT IMPORT-SAFE.** Its CLI body runs at module
@@ -1114,11 +1142,13 @@ flattening bug that derivation exists to avoid.
   dropping the edited-shipped-migration branch, dropping the stale-entry branch, and
   pointing the fixer at the real directory instead of the copy — that last one is the
   tempting shortcut, and it is what the byte-identical assertion exists to catch.
-- **`deploy:ci` is the CI deploy command**, not `pnpm run deploy`: the build trigger
-  already sets `build_command: pnpm run build`, so `pnpm run deploy` would build twice.
-  `deploy:ci` = `cp .assetsignore dist/.assetsignore && pnpm run migrate:deploy && npx
-  wrangler deploy` — no rebuild, migrations applied, `.assetsignore` copied. One named
-  script referenced once, so the chain is not duplicated in two places.
+- **`deploy:ci` is the CI deploy command** — `cp .assetsignore dist/.assetsignore &&
+  pnpm run migrate:deploy && npx wrangler deploy`. It assumes the trigger's `build_command`
+  runs `pnpm run build` FIRST, because it does not build. That is true only because the
+  `cloudflare-api-mcp` session set `build_command` when it set the deploy command; it was
+  EMPTY before, and I had asserted otherwise from a dead file. **If you ever point a trigger
+  at `deploy:ci`, set `build_command` in the same write** — alone it fails on its first
+  command, with nothing in `dist/`.
 
 - **Near-miss when searching the docs for the build cache:** `cache: { enabled: true }` IS a
   real `wrangler.jsonc` block — but it is **Workers Caching**, runtime response caching in
@@ -1186,4 +1216,4 @@ every `Env` in the Worker (measured: 11 tsc errors became 42). `test/env.d.ts` e
 `pnpm run build` does not typecheck, so passing a build proves nothing about types. Both
 gates are separate: `npx tsc --noEmit -p .` (10 known pre-existing errors — WorkflowsAgent,
 AssistantModal, MindMap, drive-explorer, reui/data-grid, JsonPayloadEditor) and
-`npx vitest run` (200 green).
+`npx vitest run` (208 green across 23 files, measured 2026-10-01).
