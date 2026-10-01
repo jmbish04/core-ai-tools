@@ -163,10 +163,45 @@ An earlier version of this file said a trigger change "needs the dashboard". Wro
   Checking the task before answering is what caught this. `/builds/*` token confusion is
   `f14b1bca77ba`.
 
-## Verification still owed
+## Verification: DONE 2026-10-01
 
-The config was proved by **reading it back**, not by running a build. The first build on
-`main` after 2026-10-01 is the real proof. Confirm it the only reliable way:
+The config had been proved only by **reading it back**. The first build on `main` after the
+change is the real proof, and it ran:
+
+```
+PR #22 merged            2026-10-01T03:15:44Z   (18f8c7d)
+version 81 uploaded      2026-10-01T03:16:22Z   26c404b1-8565-478b-bb59-d215de92cdd9
+deployment created       2026-10-01T03:16:26Z   @ 100%
+```
+
+38 seconds from merge to version upload, against ~3 minutes for the pre-change builds —
+consistent with dropping the redundant second build, which was the whole behavioural change.
+
+**The deployment existing is a structural proof that `build_command` ran, not an
+inference.** `deploy:ci` opens with
+
+```
+cp .assetsignore dist/.assetsignore && pnpm run migrate:deploy && npx wrangler deploy
+```
+
+and `cp` into `dist/` fails if nothing built it, which `&&` turns into "no version is ever
+uploaded". A version at 100% therefore proves the whole chain ran: build → `.assetsignore`
+copied → `migrate:check` passed → `migrate:deploy` applied → `wrangler deploy`. That is
+exactly the failure my one-field change would have caused, so its absence is the test.
+
+**What this does NOT prove, stated rather than glossed:** attribution to CI. `source` is
+`wrangler` and `annotations.workers/triggered_by` is `version_upload` on every deploy from
+either route, so neither can distinguish CI from a laptop (that is the error at the top of
+this file). The attribution here rests on the 38-second gap after the merge and on nobody
+having run a deploy by hand. The `Workers Builds` check run is the real discriminator, and
+it was once again not available for this commit — the behaviour already recorded below.
+
+Serving the deployed URL could not be probed from this session: the environment's network
+policy answers `403` to `CONNECT core-ai-tools.hacolby.workers.dev:443`. That is a sandbox
+restriction, not a deploy result; a session with network access to the host should curl
+`/health` to close that last gap.
+
+Re-confirm liveness the only reliable way:
 
 ```
 GET /accounts/{id}/workers/scripts/core-ai-tools/deployments
