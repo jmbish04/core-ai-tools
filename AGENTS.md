@@ -1169,9 +1169,13 @@ flattening bug that derivation exists to avoid.
   build, `.assetsignore`, `migrate:check`, `migrate:deploy`, `wrangler deploy`. Use that shape
   whenever you need to know a CI deploy command really ran: find the step that cannot succeed
   unless the previous one did, rather than reading a status.
-  Two things it does NOT prove, so do not claim them: attribution to CI (`source: wrangler` +
-  `triggered_by: version_upload` are identical from either route — the check run was again
-  absent for this commit), and that the deploy serves. **This container cannot probe the
+  **Confirmed twice, back to back** — PR #23's merge 03:23:22Z → deployment 03:24:09Z, 47s.
+  Two consecutive merges, two deploys, both under 50 seconds, with no hand-run deploy in
+  between. That is the strongest attribution available without the check run: `source` and
+  `triggered_by` cannot distinguish CI from a laptop in either direction, so the evidence is
+  the repeated sub-minute gap after a merge, not a field. Still short of proof — say "twice,
+  within a minute of each merge", not "CI deployed it".
+  The other thing it does NOT prove is that the deploy serves. **This container cannot probe the
   deployed URL at all** — the environment network policy answers `403` to `CONNECT
   core-ai-tools.hacolby.workers.dev:443`, so `/health` is unreachable from here and a `000`
   from curl is the sandbox, never a dead Worker.
