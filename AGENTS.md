@@ -1160,6 +1160,21 @@ flattening bug that derivation exists to avoid.
   EMPTY before, and I had asserted otherwise from a dead file. **If you ever point a trigger
   at `deploy:ci`, set `build_command` in the same write** — alone it fails on its first
   command, with nothing in `dist/`.
+- **✅ VERIFIED LIVE 2026-10-01, and the proof is structural rather than inferred.** PR #22
+  merged 03:15:44Z → version `26c404b1` uploaded 03:16:22Z → deployed 100% at 03:16:26Z.
+  **38 seconds**, against ~3 minutes for the pre-change builds, which is the redundant second
+  build going away. The deployment existing proves `build_command` ran: `deploy:ci` opens with
+  `cp .assetsignore dist/.assetsignore`, which fails with nothing in `dist/`, and `&&` turns
+  that into "no version is ever uploaded". So a version at 100% means the whole chain ran —
+  build, `.assetsignore`, `migrate:check`, `migrate:deploy`, `wrangler deploy`. Use that shape
+  whenever you need to know a CI deploy command really ran: find the step that cannot succeed
+  unless the previous one did, rather than reading a status.
+  Two things it does NOT prove, so do not claim them: attribution to CI (`source: wrangler` +
+  `triggered_by: version_upload` are identical from either route — the check run was again
+  absent for this commit), and that the deploy serves. **This container cannot probe the
+  deployed URL at all** — the environment network policy answers `403` to `CONNECT
+  core-ai-tools.hacolby.workers.dev:443`, so `/health` is unreachable from here and a `000`
+  from curl is the sandbox, never a dead Worker.
 
 - **Near-miss when searching the docs for the build cache:** `cache: { enabled: true }` IS a
   real `wrangler.jsonc` block — but it is **Workers Caching**, runtime response caching in
