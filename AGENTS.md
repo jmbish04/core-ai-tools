@@ -894,7 +894,11 @@ flattening bug that derivation exists to avoid.
   migrations, `wrangler deploy`. Point Workers Builds at it. If the CI/CD **build**
   command is also set to `pnpm run build`, the build runs TWICE: either leave the build
   command empty and let `deploy` do both, or set the build command to `pnpm run build` and
-  the deploy command to `pnpm run migrate:deploy && npx wrangler deploy`.
+  the deploy command to the no-rebuild form. **What this Worker's trigger ACTUALLY runs
+  since 2026-10-01 is the second option, as a named script**: `build_command: pnpm run
+  build` + `deploy_command: pnpm run deploy:ci`. Prefer `deploy:ci` over writing
+  `pnpm run migrate:deploy && npx wrangler deploy` inline — one script referenced once,
+  so the chain cannot drift between the trigger and the repo.
 - **`migrate:deploy` exists so CI never generates a migration.** It applies committed
   migrations only. `migrate:remote` runs `db:generate` first, which is right for a human who
   just changed the schema and wrong for CI: on a push whose author had not run
@@ -1038,8 +1042,12 @@ flattening bug that derivation exists to avoid.
   where the names differ and the function does run — but the live trigger for
   `core-ai-tools` was created by some other route (dashboard, most likely) and only a
   Cloudflare-side change touches it: the dashboard, `workers_cicd_configure`, or
-  `PATCH /builds/triggers/{uuid}`. From a session without a user-scoped token all three are
-  out (12006 / malformed MCP result), so this is a hand-back, not a code change.
+  `PATCH /builds/triggers/{uuid}`. **It was not a hand-back in the end** — an earlier
+  version of this bullet said it was. From THIS session all three doors are shut (12006 on
+  the API, a malformed result on the MCP tools), but `workers_cicd_configure` is served
+  locally by the `cloudflare-api-mcp` Worker with a token that reaches `/builds/*`, and the
+  session that owns it made the change on 2026-10-01. "I cannot reach it" is not "nobody
+  can" — ask the session that owns the surface before declaring a hand-back.
 - **⛔ A MISSING check run does NOT mean a missing build. I guessed a path filter and was
   wrong within ten minutes.** Measured 2026-09-30: PR #17 (`.github/` only) and PR #18
   (`AGENTS.md` + `docs/` only) each produced **NO** `Workers Builds` check run at all — five
