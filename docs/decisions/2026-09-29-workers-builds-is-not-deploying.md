@@ -153,9 +153,15 @@ An earlier version of this file said a trigger change "needs the dashboard". Wro
   which is forwarded **upstream** carrying an account-scoped token. Right surface, wrong
   generalisation.
 - The whole `workers_*` tool family returns a result this session's client rejects
-  (`missing required resultType`, MCP revision 2026-07-28). The other session could not
-  reproduce it, which locates the fault **client-side, in this session**, not in the Worker.
-  Filed as maestro `c34778a38547`; `/builds/*` token confusion is `f14b1bca77ba`.
+  (`missing required resultType`, MCP revision 2026-07-28). The owner session cannot
+  reproduce it — but **that does not make it client-local, and I nearly wrote that it did.**
+  Maestro `c34778a38547` already carried an independent reproduction from a *different*
+  session (a core-delegation PR-triage sweep, on `workers_pr_build_logs_get`). Two
+  independent strict clients reject it; one lenient client accepts it. That is what a server
+  declaring revision 2026-07-28 while those handlers return the pre-revision envelope looks
+  like, and "cannot reproduce" from a lenient client is consistent with the defect existing.
+  Checking the task before answering is what caught this. `/builds/*` token confusion is
+  `f14b1bca77ba`.
 
 ## Verification still owed
 

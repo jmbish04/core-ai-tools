@@ -1097,7 +1097,10 @@ flattening bug that derivation exists to avoid.
   environment — whatever maestro task `c9c075bd52a7` measured on the Mac, it is not what
   this container holds. So `/builds/*` is unreachable here by ANY available route: the
   connector, `CLOUDFLARE_API_TOKEN`, and the misnamed user token all 12006, and the
-  `workers_cicd_*` tools are malformed FOR THIS CLIENT.
+  `workers_cicd_*` tools are malformed for THIS client — and for at least one other: maestro
+  `c34778a38547` carries the same `missing required resultType` failure from an unrelated
+  core-delegation session. The owner's client accepts the result, so do NOT write this off
+  as one session's quirk; two independent strict clients reject it.
   **But "changing a build trigger needs the dashboard" was wrong** — the session that owns
   `cloudflare-api-mcp` corrected it on 2026-10-01 and then did it: `workers_cicd_configure`
   is served LOCALLY by that Worker and calls Cloudflare with a user token that DOES reach
