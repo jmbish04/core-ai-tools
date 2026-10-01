@@ -192,9 +192,19 @@ exactly the failure my one-field change would have caused, so its absence is the
 **What this does NOT prove, stated rather than glossed:** attribution to CI. `source` is
 `wrangler` and `annotations.workers/triggered_by` is `version_upload` on every deploy from
 either route, so neither can distinguish CI from a laptop (that is the error at the top of
-this file). The attribution here rests on the 38-second gap after the merge and on nobody
-having run a deploy by hand. The `Workers Builds` check run is the real discriminator, and
-it was once again not available for this commit — the behaviour already recorded below.
+this file). The `Workers Builds` check run is the real discriminator, and it was once again
+not available for this commit — the behaviour already recorded below.
+
+What stands instead is a **repeated** sub-minute gap, which one instance could not give:
+
+```
+PR #22 merged 03:15:44Z  ->  deployment 03:16:26Z   (42s)
+PR #23 merged 03:23:22Z  ->  deployment 03:24:09Z   (47s)
+```
+
+Two consecutive merges, two deploys, no hand-run deploy in between. That is the strongest
+attribution available here — but it is still circumstantial, so write "twice, within a
+minute of each merge", never "CI deployed it".
 
 Serving the deployed URL could not be probed from this session: the environment's network
 policy answers `403` to `CONNECT core-ai-tools.hacolby.workers.dev:443`. That is a sandbox
