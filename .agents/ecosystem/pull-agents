@@ -208,7 +208,7 @@ scripts_for_repo() {              # -> one script name per line
     *$'\n'AGENTS-cloudflare-workers.md$'\n'*) printf 'fix-d1-migrations.mjs\n' ;;
   esac
   case $'\n'"$(selected_files)"$'\n' in
-    *$'\n'AGENTS-frontend.md$'\n'*) printf 'reui.mjs\n' ;;
+    *$'\n'AGENTS-frontend.md$'\n'*) printf 'reui.mjs\nui-guard.mjs\n' ;;
   esac
 }
 

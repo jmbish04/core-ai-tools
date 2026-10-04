@@ -8,6 +8,211 @@
 
 ---
 
+# The frontend standard — non-negotiable UI rules
+
+**The standard is a repository: `jmbish04/core-template-cf-reui`.** It is pinned in
+colby-ecosystem as the submodule `templates/frontend`, and **every new frontend repo
+is created from it** — Colby Maestro provisions the new repo (Worker, CI/CD, synced
+briefings). `~/.colby-ecosystem/frontend` on Justin's Mac is a symlink to a local
+clone of it. When this file and the template disagree about *how*, read the template;
+when they disagree about a *rule*, this file wins and the template gets fixed.
+
+These rules are decided. Every one has been corrected by hand more than once:
+
+1. **Every page sits in the ReUI app shell**, through the shared layout. A page
+   that renders its own `<html>` is outside the shell.
+2. **ReUI's default theme, dark by default, a light toggle in the header.** No
+   custom palette, ever — never pick a brand colour. Measured failures: a teal
+   console, and an orange one nobody asked for. Colour comes from the design
+   tokens (`bg-primary`, `text-muted-foreground`, `var(--chart-1)`), never from a
+   hex literal or a Tailwind palette utility like `text-gray-500`.
+3. **A table is always the ReUI Data Grid, with grouping and the advanced filter
+   builder.** Never a plain `<table>`, and never group headers bolted onto one.
+4. **No pie or doughnut charts.** A horizontal bar, a stacked bar, or a number
+   with a trend reads better.
+5. **Bars are horizontal unless the x-axis is time.** (Recharts names it
+   backwards: `layout="vertical"` *is* the horizontal bar.)
+6. **Chart text, axes, gridlines and series are high-contrast on BOTH themes.**
+   Use the tokens; never a library's default black — black on a dark chart is
+   invisible, and it ships that way because the author only looked in one theme.
+7. **A chart turns data into information** — a trend, a comparison, a rate, an
+   anomaly, a forecast. A bar per status showing a count of rows is a table that
+   went to art school; show what changed, or how fast, or what is unusual.
+8. **The primitive layer is Base UI, not Radix, and the variant is `nova`.**
+   `components.json` declares `"style": "base-nova"` — ReUI's own documented
+   default. The style is `{library}-{variant}`; the library must be `base`
+   (`radix-*` and `new-york-*` are Radix), and one variant across the fleet is
+   what keeps two apps from looking like two products. See the section below —
+   this is the one rule with a migration attached.
+9. **Selects render labels through a shared wrapper, never a raw
+   `<SelectValue>`.** Both libraries paint the wrong thing without one, and only
+   on first paint. Same section.
+
+**`scripts/ui-guard.mjs` enforces the checkable subset — once a repo wires it
+into `pnpm run build`.** Measured 2026-10-04: not one repo under
+`/Volumes/Projects/workers` does, so today it only runs when somebody runs it.
+A guard a briefing says is running, and which is not, is worse than no guard:
+it reads as covered. Adding `node scripts/ui-guard.mjs &&` to a repo's `build`
+is the step that makes any of this binding, and a repo with pre-existing
+violations switches the failing rules off in `.ui-guard.json` with a
+`migration` entry rather than leaving the guard unwired.
+
+It is a deterministic scan, not a review: `no-table`, `no-pie-chart`,
+`no-vertical-bar`, `no-raw-color`, `no-custom-palette` (a tinted `--primary` /
+`--ring` in the theme CSS — where the teal actually lived), `dark-default`,
+`app-shell`, `base-ui-style`, `no-radix`, `select-wrapper`. `pull-agents` ships it to every
+frontend repo with the briefings. A genuine exception is suppressed on that one
+line, with a reason that a reviewer can disagree with:
+
+```tsx
+{/* ui-guard-allow no-vertical-bar: x-axis is a daily time series */}
+```
+
+A whole rule can be switched off in `.ui-guard.json`, and that needs a
+`migration` entry naming what ends the exemption — a task id, a PR, a dated
+decision. An opt-out nobody can attribute is the rule being deleted:
+
+```json
+{ "rules": { "base-ui-style": "off" },
+  "migration": { "base-ui-style": "maestro task 5dc4f5e5b6b3" } }
+```
+
+Rules 6 and 7 are not checkable by a regex; they are yours to hold.
+
+---
+
+# Base UI is the primitive layer. Radix is the thing being migrated off.
+
+**Decided 2026-10-04. Every new frontend uses Base UI primitives; `components.json`
+says `"style": "base-nova"`.** Radix is not forbidden retroactively — it is what
+most repos have — but it is no longer a default anyone picks on purpose, and
+`ui-guard` says so.
+
+## Why, with the measurements behind it
+
+- **shadcn/ui made Base UI its default on 2026-07-03.** The style name is
+  `{library}-{theme}`, and ReUI's agent skill states the rule: "the base library
+  is the segment before the first `-`". Measured 2026-10-04, all four styles
+  exist in both the shadcn and ReUI registries — `base-nova`, `base-vega`,
+  `radix-nova`, `radix-vega` — and `/r/styles/base-nova/select.json` imports
+  `@base-ui/react/select` while `radix-*` and shadcn's own `new-york-v4` import
+  `radix-ui`. **`new-york-v4` does not exist in ReUI's registry at all**, which
+  is why Pro installs 404 on a repo still pinned to it. Radix stays supported
+  with no deprecation date, and the shadcn team still runs it — this is a choice
+  about where new work goes, not a fire.
+
+  The style is `{library}-{variant}`: the library picks the primitive API, the
+  variant picks the look, and **every pairing is served**. ReUI's registry docs
+  list eight variants and name one default:
+
+  | variant | look |
+  |---|---|
+  | **`nova`** | reduced padding and margins — **the default, and what this ecosystem uses** |
+  | `vega` | clean, neutral, familiar |
+  | `maia` | rounded, generous spacing |
+  | `lyra` | boxy and sharp, for mono fonts |
+  | `mira` | compact interfaces |
+  | `luma` | fluid, luminous, soft |
+  | `sera` | editorial and typographic |
+  | `rhea` | Luma, compact |
+
+  So `base-nova` is the standard here because it is ReUI's own default, not
+  because someone liked it. `ui-guard` checks only the library, because a
+  variant is a look and a library is an API — but one variant per fleet is the
+  convention, and `base-nova` is it. A `{style}` outside those lists is not
+  served at all and the install fails as not found.
+- **ReUI's blocks are already Base UI.** Its registry redirects
+  `/r/new-york/{name}.json` to `/r/styles/base-nova/…`, and the ReUI components
+  on disk import `@base-ui/react` directly — measured in colby-maestro: 15 of its
+  `components/reui/` files already do, against 29 radix files all confined to
+  `components/ui/`. Half the primitive layer migrated itself while nobody was
+  looking.
+- **The mismatch does not fail loudly, which is the real argument.** A Base UI
+  block dropped onto Radix wrappers passes `render` to a trigger and
+  `delay`/`closeDelay`/`timeout` to a tooltip provider. Radix does not know those
+  props, so it **ignores them silently**: the trigger renders and does nothing.
+  Measured 2026-10-03 on `@reui/solution-crm-7` — 33 type errors, every one
+  inside the two primitives it pulled in, and the runtime behaviour would have
+  shipped looking fine. A library that throws is a better neighbour than one that
+  shrugs.
+- **It gives the select trigger a declarative way to show a label** — but read the
+  next section before believing it fixes anything on its own.
+
+## The select trigger shows the wrong thing in BOTH libraries
+
+This is the bug that started the conversation, and switching library does **not**
+fix it. Measured both ways:
+
+| Library | What the trigger paints | Why |
+|---|---|---|
+| Radix | nothing during SSR, then the label after hydration; the usual workaround `<SelectValue>{value}</SelectValue>` paints the raw id | it resolves the trigger's text from the *mounted* item, which does not exist server-side |
+| Base UI | the **raw value** — a filter shows `__all__`, an assignee shows `asg-01H9X…` | `Select.Value` renders the value unless `Select.Root` is given `items`, or `Select.Value` is given a function child |
+
+Both were hit in production here: `__all__` in every filter of
+core-template-cfw-assets-astro-shadcn (Justin reported it as "select menus should
+not be `_all_` on load"), and a raw assignee id in colby-maestro. Neither
+type-errors, and both only show on **first paint**, before anyone interacts —
+which is why they survive a whole build.
+
+**So the rule is about the wrapper, not the library.** Never write a raw
+`<Select>` + `<SelectValue>` on this stack. Go through one shared wrapper that
+resolves the option's label, and give Base UI's `Select.Root` its `items` map so
+the label renders server-side. Both halves of the ecosystem already have that
+wrapper — colby-maestro's `components/shared/select-field.tsx`, and ReUI's own
+`option-select.tsx` inside `solution-files-1`, which composes
+`items={options}` with `<SelectValue>{selected?.label ?? value}</SelectValue>`.
+Promote one of those rather than writing a third.
+
+`ui-guard`'s `select-wrapper` rule is what stops a call site going round it. The
+wrapper itself is the one legitimate `<SelectValue>`, and it says so on the line:
+
+```tsx
+{/* ui-guard-allow select-wrapper: this IS the shared wrapper */}
+```
+
+**Check the trigger's text on first paint, before interacting.** That is the only
+moment either bug is visible.
+
+## What this means for a repo
+
+| Situation | Do |
+|---|---|
+| **New repo** | `"style": "base-nova"`. `core-template-cf-reui` is Base UI already but ships the `vega` variant, so align it to `nova` on the way past. |
+| **Existing repo, no frontend work planned** | Leave it. Switch `base-ui-style` and `no-radix` off in `.ui-guard.json` with a `migration` entry naming the task. |
+| **Existing repo you are already touching** | Migrate the primitives in their own PR, ahead of the feature work. Mixing the two makes a 2,000-line primitive diff look like part of a feature. |
+
+## Migrating one repo — the shape of the work, measured on colby-maestro
+
+Radix is confined to the wrappers; application code only ever sees them. In
+colby-maestro: **29 files** import Radix and **all of them** are in
+`web/components/ui/`, which is ~5,800 lines of generated wrapper. Application
+code's exposure is the API surface, not the library:
+
+| Thing to change | Count here | Character |
+|---|---|---|
+| Primitive wrappers | 29 files | re-install from `base-nova`, do not hand-port |
+| `asChild` → `render` | 113 sites, 70 outside the wrappers | mechanical, one pass |
+| `onOpenChange` signature | 172 sites to read | `(open)` becomes `(open, details)` |
+| `<SelectValue>` call sites | 22 | most become an `items` map on the Root |
+| Portal/Content → Portal/Positioner/Popup | every overlay | structural, per primitive |
+
+So: **half a day to a day for a repo this size**, as one PR per primitive group
+(overlays, menus, form controls), not one big bang. The number that makes it cheap
+is 29-of-29 confinement — check that first in any repo before quoting an estimate,
+because a repo that imports Radix from feature code is a different job.
+
+Two installer side effects to expect, both already known: `shadcn add` writes
+`import { cn } from "cn"` (this stack uses `@/lib/utils`), and the `base-nova`
+registry output currently leaks an `@/app/(create)/components/icon-placeholder`
+import that does not exist outside shadcn's own repo. Strip both.
+
+**Ecosystem scale, so nobody promises a weekend:** 2,198 `.tsx` files across 148
+directories under `/Volumes/Projects/workers` import Radix today (measured
+2026-10-04, excluding `node_modules`). That is why this is a standard for new work
+plus migrate-when-you-touch-it, and not a campaign.
+
+---
+
 # One frontend, three runtimes, zero porting
 
 There is exactly **one** frontend stack, and it is deliberately portable so the
@@ -23,21 +228,23 @@ The **frontend does not care** what serves `/api`. Only the backend half differs
 This is why "port this to a Worker" must be a backend change, never a frontend
 rewrite — the shell, the blocks, the theme, and the components travel as-is.
 
-Never start a UI from scratch; never re-decide the stack per project. Copy the
-template, then adapt:
-
-```bash
-bash ~/.colby-ecosystem/frontend/install.sh
-```
+Never start a UI from scratch; never re-decide the stack per project. A new repo
+is **created from the template** (`jmbish04/core-template-cf-reui` — GitHub's
+"Use this template", then Colby Maestro provisions it). For an existing repo, copy
+what you need from the template — `components.json`, the theme CSS, the layouts —
+rather than re-deriving it. Locally the template is at `~/.colby-ecosystem/frontend`
+(a symlink to `/Volumes/Projects/workers/core-template-cf-reui`).
 
 Stack, locked:
 - **Astro + React islands** — SSR + only ship JS that must be interactive
 - **ReUI** (`@reui`, Pro) — the design system and block library
-- **shadcn/ui** primitives — ReUI builds on them
+- **shadcn/ui** primitives, on the **`base-nova`** style — which means **Base UI**
+  underneath, not Radix. ReUI's blocks are built on Base UI; see "Base UI is the
+  primitive layer" above.
 - **Tailwind CSS v4** + `tw-animate-css`
 - **mcpcn** (`@mcpcn`, public, no key) — MCP App UI blocks, for tool results a
-  person reads. Both registries ship in the template's `components.json`, and
-  `install.sh` adds `@mcpcn` to an existing one. See "MCP servers" in
+  person reads. Both registries ship in the template's `components.json`; copy the
+  `@mcpcn` entry into an existing one. See "MCP servers" in
   `~/AGENTS-cloudflare-workers.md`.
 - **PNPM is the default package manager.** Use `pnpm` for installs, `pnpm dlx
   shadcn@latest add`, `pnpm run <script>`, `pnpm run test`. Never `npm`/`yarn`/`bun`.
@@ -157,8 +364,9 @@ session.
 
 ## A new repo: configure it correctly, first commit
 
-1. `bash ~/.colby-ecosystem/frontend/install.sh` — stack, `components.json`, both
-   registries, the key resolved from the tokens CLI.
+1. Create it from `jmbish04/core-template-cf-reui` — stack, `components.json`,
+   both registries, the theme, the shell layout, and `scripts/ui-guard.mjs` already
+   wired into the build. Colby Maestro provisions the rest.
 2. Compile the design system's tokens into the project's `tokens.css` / theme
    layer **before installing any component**. Installing first means retokening
    every file by hand afterwards.
@@ -251,7 +459,7 @@ lives in the tokens CLI locally **and** in the Cloudflare Secret Store under the
 ## Local: tokens CLI
 
 Resolve at install time — never paste the key into a repo file, never a `.env`,
-never hardcode it. The `install.sh` already does this:
+never hardcode it:
 
 ```bash
 tokens find REUI_LICENSE_KEY                       # verify it exists (names only)
@@ -450,14 +658,11 @@ searched across which categories before writing anything custom.
 These are decided. Do not re-litigate them per project, and do not let a block's
 stock example override them:
 
-- **No pie charts.** Not for share-of-total, not for status breakdowns, not as
-  "just what the block came with." Swap them — a horizontal bar, a stacked bar,
-  or a number with a trend almost always reads better.
-- **Bar charts are horizontal** unless there is a specific reason otherwise
-  (a genuine time series along the x-axis is the usual exception). Horizontal
-  survives long category labels, which is what most of these charts carry.
-- **Do grouping properly.** If a table groups, take the Data Grid block built for
-  grouping rather than bolting group headers onto a plain table.
+Rules 3–7 of "The frontend standard" at the top of this file: no pies, horizontal
+bars unless the x-axis is time (horizontal survives long category labels, which is
+what most of these charts carry), the Data Grid with grouping for every table,
+high contrast on both themes, information rather than counts. They hold even when a
+block's stock example breaks them — and `ui-guard` will say so.
 
 When a block's stock chart violates one of these, that is expected — retrofit it.
 That is what the charts page is for.
@@ -546,7 +751,7 @@ takes no children; every select gets a placeholder.
 
 Consult the **impeccable** skill before building anything visual, preloaded with
 what is already decided (shell, surface, theme, pages above). Full detail:
-`~/.colby-ecosystem/frontend/README.md` and
+the template's own `README.md` / `AGENTS.md` and
 `~/.colby-ecosystem/reference/frontends.md`.
 
 ---

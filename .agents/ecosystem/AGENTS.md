@@ -172,6 +172,7 @@ and the rest follow the stack the way the chapters do:
 | `scripts/tokens.mjs` | every repo | scaffolded from the `tokens` CLI, not vendored — one source, no drift |
 | `scripts/fix-d1-migrations.mjs` | Worker repos | makes Drizzle's SQL re-runnable on D1 |
 | `scripts/reui.mjs` | frontend repos | pins the `@reui` registry so Pro blocks stop 401-ing |
+| `scripts/ui-guard.mjs` | frontend repos | fails the build on the frontend standard's checkable rules — see `AGENTS-frontend.md` |
 
 **`scripts/gh.mjs` exists so you do not write another one.** Agents reach for a
 homegrown `gh.mjs` in every repo, re-solve GitHub auth badly, and lose an hour to a
