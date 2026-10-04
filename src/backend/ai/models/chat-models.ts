@@ -1,57 +1,72 @@
 /**
- * @fileoverview Workers AI chat-model picker registry.
+ * @fileoverview Chat-model picker registry — guardian ROUTING ALIASES.
  *
- * The only LLM provider available in this template is Cloudflare Workers AI —
- * there are no OpenAI/Anthropic keys. The assistant's "provider/model dropdown"
- * is therefore a picker over the chat-capable Workers AI models below.
+ * Every LLM call in this Worker goes through core-guardian, so the picker
+ * offers guardian's routing INTENTS, not provider model ids. Guardian chooses
+ * the actual model behind each alias, which is what lets it enforce budget and
+ * breaker checks and keeps model selection in one place instead of in every
+ * caller.
  *
- * This list is the single source of truth shared by:
+ * ## This list used to be pinned Workers AI ids, and could not stay that way
+ *
+ * It held `@cf/openai/gpt-oss-120b` and two Llama ids, passed straight to
+ * `createWorkersAI({ binding: env.AI })`. There is no `ai` binding any more and
+ * there must not be one — `env.AI.run` is account-implicit, always bills the
+ * paid account, and cannot be metered per-account. With that binding gone those
+ * ids addressed nothing, so the picker had to be re-expressed in the only
+ * vocabulary the remaining door understands.
+ *
+ * Single source of truth shared by:
  *  - the backend (`getChatModel(env, modelId)` validates against it), and
- *  - the frontend model `<Select>` in the Thread header (imported as a plain
- *    data array — no server code is pulled into the bundle).
- *
- * Each entry's `id` is the exact Workers AI model id passed to the AI SDK
- * provider. Keep ids in sync with `src/backend/ai/models/index.ts` (MODEL_MAP).
+ *  - the frontend model `<Select>` in the Thread header (a plain data array —
+ *    no server code is pulled into the bundle).
  */
 
-/** A single selectable Workers AI chat model. */
+/** A single selectable guardian routing alias. */
 export interface ChatModelOption {
-  /** Exact Workers AI model id (e.g. "@cf/openai/gpt-oss-120b"). */
+  /** Guardian routing alias (e.g. "auto"). NOT a provider model id. */
   id: string;
   /** Short human label for the dropdown. */
   label: string;
-  /** One-line capability hint shown under the label. */
+  /** One-line hint shown under the label. */
   hint: string;
 }
 
 /**
- * The chat-capable Workers AI models offered in the model picker.
+ * The guardian routing aliases offered in the model picker.
  *
  * The FIRST entry is the default when a thread has no explicit `model` set and
- * `MODEL_CHAT` is unset.
+ * `MODEL_CHAT` is unset. `auto` leads deliberately: letting guardian route is
+ * the behaviour that stays correct as its catalog and pricing change, whereas
+ * anything more specific is a standing bet on today's line-up.
  */
 export const CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
   {
-    id: "@cf/openai/gpt-oss-120b",
-    label: "GPT-OSS 120B",
-    hint: "Most capable · tools + structured output",
+    id: "auto",
+    label: "Auto",
+    hint: "Guardian routes by task · recommended",
   },
   {
-    id: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-    label: "Llama 3.3 70B",
-    hint: "Fast, strong general reasoning",
+    id: "best",
+    label: "Best",
+    hint: "Highest capability available",
   },
   {
-    id: "@cf/meta/llama-3.1-8b-instruct",
-    label: "Llama 3.1 8B",
-    hint: "Lightweight · lowest latency",
+    id: "budget",
+    label: "Budget",
+    hint: "Capable, cheaper tier",
+  },
+  {
+    id: "cheapest",
+    label: "Cheapest",
+    hint: "Lowest cost per call",
   },
 ] as const;
 
-/** Default chat model id (first option). */
+/** Default chat alias (first option). */
 export const DEFAULT_CHAT_MODEL_ID = CHAT_MODEL_OPTIONS[0]!.id;
 
-/** Set of valid model ids for O(1) validation. */
+/** Set of valid aliases for O(1) validation. */
 const VALID_MODEL_IDS = new Set(CHAT_MODEL_OPTIONS.map((m) => m.id));
 
 /**

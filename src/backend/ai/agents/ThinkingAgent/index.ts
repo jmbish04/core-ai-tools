@@ -66,7 +66,7 @@ export class ThinkingAgent extends AIChatAgent<Env> {
    */
   async onChatMessage(onFinish: Parameters<AIChatAgent<Env>["onChatMessage"]>[0]) {
     const modelMessages = await convertToModelMessages(this.messages as UIMessage[]);
-    const model = getChatModel(this.env);
+    const model = await getChatModel(this.env);
 
     const stream = createUIMessageStream({
       onFinish: ({ messages }) => {

@@ -125,7 +125,7 @@ export class OrchestratorAgent extends AIChatAgent<Env> {
    */
   async onChatMessage(onFinish: Parameters<AIChatAgent<Env>["onChatMessage"]>[0]) {
     const result = streamText({
-      model: getChatModel(this.env),
+      model: await getChatModel(this.env),
       system: SYSTEM_PROMPT,
       messages: await convertToModelMessages(this.messages as UIMessage[]),
       tools: {

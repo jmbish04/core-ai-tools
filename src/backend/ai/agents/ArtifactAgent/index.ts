@@ -69,7 +69,7 @@ export class ArtifactAgent extends AIChatAgent<Env> {
    */
   async onChatMessage(onFinish: Parameters<AIChatAgent<Env>["onChatMessage"]>[0]) {
     const result = streamText({
-      model: getChatModel(this.env),
+      model: await getChatModel(this.env),
       messages: await convertToModelMessages(this.messages as UIMessage[]),
       system: `You are a code versioning agent that can manage files in Git-native storage.
 
