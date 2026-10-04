@@ -134,12 +134,12 @@ for (const p of ["sessions", "revisions", "library", "models", "prompts", "video
 // ---------------------------------------------------------------------------
 
 app.route("/api/auth", authRouter);
+// Mounted ONCE. The conventional root `/health` is served by rewriting it to
+// this path in `_worker.ts#apiPathFor` — mounting the same router twice emits
+// duplicate `operationId`s (measured: 6 paths, 3 dupes) which is an invalid
+// OpenAPI spec, and it would also expose `/health/run` and `/health/latest`
+// at the root, which nothing asked for.
 app.route("/api/health", healthRouter);
-// Also at the conventional root path. `/health` is what an uptime monitor and
-// every ops runbook reaches for, and it must NOT be behind the page gate — see
-// `_worker.ts#isApiPath`, which has the matching entry. Both paths are the same
-// router, so the two cannot drift.
-app.route("/health", healthRouter);
 app.route("/api/config", configRouter);
 app.route("/api/admin", adminRouter);
 app.route("/api/docs", docsRouter);

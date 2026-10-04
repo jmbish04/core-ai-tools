@@ -30,7 +30,7 @@ import { verifySessionCookie } from "./backend/lib/cookies";
 // Pure path predicates, extracted so the vitest suite can import them — this
 // module cannot be imported in tests (Astro virtual manifest), which is why
 // the /health gate bug had no test. See routing/path-gates.ts.
-import { isApiPath, isPageRequest } from "./backend/routing/path-gates";
+import { apiPathFor, isApiPath, isPageRequest } from "./backend/routing/path-gates";
 import { createCoreContext, reapStuckRevisions } from "./backend/core";
 import { drainUsageOutbox } from "./backend/ai/dispatch";
 
@@ -133,8 +133,16 @@ const base = {
       }
     }
 
-    // 2. REST API + OpenAPI docs → Hono.
+    // 2. REST API + OpenAPI docs → Hono. `apiPathFor` maps a public path to the
+    // path Hono mounts it at; today that is only `/health` → `/api/health`, so
+    // the health router is registered once and openapi.json stays valid.
     if (isApiPath(url.pathname)) {
+      const served = apiPathFor(url.pathname);
+      if (served !== url.pathname) {
+        const rewritten = new URL(url);
+        rewritten.pathname = served;
+        return honoApp.fetch(new Request(rewritten, request) as any, env, ctx);
+      }
       return honoApp.fetch(request as any, env, ctx);
     }
 

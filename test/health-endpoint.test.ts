@@ -24,14 +24,13 @@ import { describe, expect, it } from "vitest";
 
 import { healthRouter } from "@/backend/api/routes/health";
 import { errorHandler } from "@/backend/api/middleware/error";
-import { isApiPath, isPageRequest } from "@/backend/routing/path-gates";
+import { apiPathFor, isApiPath, isPageRequest } from "@/backend/routing/path-gates";
 
-/** Mount exactly as `api/index.ts` does — both paths, one router. */
+/** Mount exactly as `api/index.ts` does: ONCE, at /api/health. */
 function api() {
   const app = new OpenAPIHono<{ Bindings: Env }>();
   app.onError(errorHandler as never);
   app.route("/api/health", healthRouter);
-  app.route("/health", healthRouter);
   return app;
 }
 
@@ -57,8 +56,9 @@ function fullEnv(): Record<string, unknown> {
   };
 }
 
+/** Resolve the public path the way `_worker.ts` does, then request it. */
 const getWith = (path: string, e: Record<string, unknown>) =>
-  api().request(new Request(`https://t.local${path}`), undefined, e as never);
+  api().request(new Request(`https://t.local${apiPathFor(path)}`), undefined, e as never);
 
 const get = (path: string) => getWith(path, fullEnv());
 
@@ -86,10 +86,19 @@ describe("the page gate must not own /health", () => {
 });
 
 describe("GET /health and /api/health answer with a live verdict", () => {
-  it("serves the same body on both paths", async () => {
-    const [root, api_] = await Promise.all([get("/health"), get("/api/health")]);
-    expect(root.status).toBe(api_.status);
-    const [a, b] = await Promise.all([root.json(), api_.json()]);
+  it("resolves the public /health to the one mounted path", () => {
+    expect(apiPathFor("/health")).toBe("/api/health");
+    // Identity for everything else — an entry here is the ONLY way a public
+    // path may differ from the path that serves it.
+    for (const p of ["/api/health", "/api/health/latest", "/openapi.json", "/library"]) {
+      expect(apiPathFor(p)).toBe(p);
+    }
+  });
+
+  it("serves the same body whichever path is asked for", async () => {
+    const [root, direct] = await Promise.all([get("/health"), get("/api/health")]);
+    expect(root.status).toBe(direct.status);
+    const [a, b] = await Promise.all([root.json(), direct.json()]);
     // checkedAt/durationMs are per-request; the verdict and checks must match.
     expect((a as Record<string, unknown>).status).toEqual((b as Record<string, unknown>).status);
     expect((a as { checks: unknown[] }).checks.map((c) => (c as { name: string }).name)).toEqual(
@@ -201,5 +210,48 @@ describe("a failure changes the verdict AND the status code", () => {
     const res = await getWith("/health", crippled);
     const body = (await res.json()) as { checks: Array<{ name: string; status: string }> };
     expect(body.checks.find((c) => c.name === "binding_oauth_kv")?.status).toBe("fail");
+  });
+});
+
+describe("the OpenAPI spec stays valid", () => {
+  /**
+   * My first attempt at exposing `/health` mounted the health router a SECOND
+   * time, at the root. That emitted 6 paths with 3 duplicate `operationId`s —
+   * invalid, since operationId must be unique — and silently published
+   * `/health/run` and `/health/latest`, which nothing asked for. Nothing failed:
+   * the spec just quietly became wrong.
+   *
+   * So the rewrite is the mechanism, and this is the guard. Re-adding
+   * `app.route("/health", healthRouter)` fails here.
+   */
+  it("registers each health operation exactly once, and nothing at the root", async () => {
+    const app = new OpenAPIHono<{ Bindings: Env }>();
+    app.route("/api/health", healthRouter);
+    app.doc("/openapi.json", { openapi: "3.1.0", info: { title: "t", version: "1" } });
+
+    const spec = (await (await app.request("https://t.local/openapi.json")).json()) as {
+      paths: Record<string, Record<string, { operationId?: string }>>;
+    };
+
+    const ids: string[] = [];
+    for (const methods of Object.values(spec.paths ?? {})) {
+      for (const op of Object.values(methods)) if (op?.operationId) ids.push(op.operationId);
+    }
+    expect(ids.filter((id, i) => ids.indexOf(id) !== i), "duplicate operationIds").toEqual([]);
+    expect([...ids].sort()).toEqual(["getLatestHealthCheck", "healthCheck", "runHealthCheck"]);
+
+    // No health operation may be published at the bare root.
+    expect(Object.keys(spec.paths ?? {}).filter((p) => !p.startsWith("/api/"))).toEqual([]);
+  });
+
+  it("declares both 200 and 503 on the live probe", async () => {
+    const app = new OpenAPIHono<{ Bindings: Env }>();
+    app.route("/api/health", healthRouter);
+    app.doc("/openapi.json", { openapi: "3.1.0", info: { title: "t", version: "1" } });
+    const spec = (await (await app.request("https://t.local/openapi.json")).json()) as {
+      paths: Record<string, Record<string, { responses?: Record<string, unknown> }>>;
+    };
+    // An undeclared status would make the 503 a lie in the published contract.
+    expect(Object.keys(spec.paths["/api/health"].get.responses ?? {}).sort()).toEqual(["200", "503"]);
   });
 });

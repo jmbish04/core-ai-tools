@@ -40,6 +40,24 @@ export function isApiPath(pathname: string): boolean {
 }
 
 /**
+ * Internal path the Hono app actually serves a public path from.
+ *
+ * `/health` is the conventional endpoint every uptime monitor and runbook
+ * reaches for, but the router is mounted once, at `/api/health`. Rewriting here
+ * rather than mounting the router twice keeps `openapi.json` valid: a second
+ * mount re-registers every operation under a new path with the SAME
+ * `operationId` (measured: 6 paths, 3 duplicate ids), and `operationId` must be
+ * unique. It would also have published `/health/run` and `/health/latest`,
+ * which nothing asked for.
+ *
+ * Identity for everything else, so adding an entry here is the only way a
+ * public path can differ from its served path.
+ */
+export function apiPathFor(pathname: string): string {
+  return pathname === "/health" ? "/api/health" : pathname;
+}
+
+/**
  * True for an HTML page navigation that should be gated behind the session
  * cookie. Excludes `/login` (the gate's own escape hatch), the API +
  * agent/ws/mcp surfaces (they enforce their own auth), OAuth discovery, Astro
