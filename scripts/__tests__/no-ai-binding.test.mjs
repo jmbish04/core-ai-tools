@@ -128,5 +128,27 @@ check(
   bad.map((k) => `${k}=${cfg.vars[k]}`).join(", "),
 );
 
+/**
+ * Pin the exception rather than leaving it to drift.
+ *
+ * `DEFAULT_MODEL_EMBEDDING` is the one remaining `@cf/` var. It survives
+ * because embedding through guardian is not implemented, and its only reader
+ * (`ai/models/index.ts#getModelRegistry`) has ZERO callers — dead code reached
+ * solely through the `providers/index.ts` this change deleted. Left for a
+ * separate cleanup instead of widening this one.
+ *
+ * Asserting the exact set means a NEW `@cf/` var cannot be added quietly: the
+ * check fails and whoever adds one has to say why here.
+ */
+const cfVars = Object.entries(cfg.vars ?? {})
+  .filter(([, v]) => String(v).startsWith("@cf/"))
+  .map(([k]) => k)
+  .sort();
+check(
+  "the only remaining @cf/ var is the (dead-path) embedding default",
+  JSON.stringify(cfVars) === JSON.stringify(["DEFAULT_MODEL_EMBEDDING"]),
+  JSON.stringify(cfVars),
+);
+
 console.log(failures === 0 ? "\nno-ai-binding: all checks passed" : `\n${failures} FAILED`);
 process.exit(failures === 0 ? 0 : 1);
