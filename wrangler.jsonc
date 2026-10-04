@@ -56,14 +56,6 @@
   "placement": {
     "mode": "smart",
   },
-  "ai": {
-    "binding": "AI",
-    // Workers AI has no local emulation. `remote: true` lets `wrangler dev`
-    // (which runs Durable Objects locally — `--remote` is unsupported for DOs)
-    // proxy AI inference to the real Workers AI service, so the chat agents
-    // stream genuine model output during local development.
-    "remote": true,
-  },
   "durable_objects": {
     // Trimmed to what core-ai-tools exports (see src/_worker.ts): ChatBroker
     // (assistant-ui chat), NotificationsAgent (realtime feed), SessionDO
@@ -186,9 +178,9 @@
   // destination. Leave INBOX_FORWARD_TO empty to disable forwarding.
   "vars": {
     "AI_GATEWAY_ID": "core-ai-tools",
-    "MODEL_CHAT": "@cf/openai/gpt-oss-120b",
-    "MODEL_EXTRACT": "@cf/openai/gpt-oss-120b",
-    "MODEL_DRAFT": "@cf/openai/gpt-oss-120b",
+    "MODEL_CHAT": "auto",
+    "MODEL_EXTRACT": "auto",
+    "MODEL_DRAFT": "auto",
     "MODEL_TRANSCRIBE": "@cf/openai/whisper-large-v3-turbo",
     "DEFAULT_MODEL_EMBEDDING": "@cf/baai/bge-large-en-v1.5",
     // Optional verified destination for message.forward() in the email handler.

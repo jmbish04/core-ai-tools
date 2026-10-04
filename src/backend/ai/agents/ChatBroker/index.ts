@@ -295,7 +295,7 @@ export class ChatBroker extends AIChatAgent<Env> {
 
     try {
       const result = streamText({
-        model: getChatModel(this.env, modelId),
+        model: await getChatModel(this.env, modelId),
         system,
         messages: await convertToModelMessages(this.messages as UIMessage[]),
         // Widen to `ToolSet` so `streamText` does not narrow the `onFinish`
@@ -384,7 +384,7 @@ export class ChatBroker extends AIChatAgent<Env> {
     if (!firstUserText) return;
 
     const { text } = await generateText({
-      model: getChatModel(this.env, modelId),
+      model: await getChatModel(this.env, modelId),
       system:
         "You write a short chat title (3-7 words) summarising the user's message. " +
         "Return ONLY the title — no quotes, no punctuation at the end, no preamble.",

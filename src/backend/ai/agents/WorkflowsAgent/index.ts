@@ -64,7 +64,7 @@ export class WorkflowsAgent extends AIChatAgent<Env, WorkflowsSyncState> {
    */
   async onChatMessage(onFinish: Parameters<AIChatAgent<Env>["onChatMessage"]>[0]) {
     const result = streamText({
-      model: getChatModel(this.env),
+      model: await getChatModel(this.env),
       messages: await convertToModelMessages(this.messages as UIMessage[]),
       system: `You are a workflow orchestration agent that can execute long-running tasks.
 

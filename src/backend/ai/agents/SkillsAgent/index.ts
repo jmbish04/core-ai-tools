@@ -204,7 +204,7 @@ export class SkillsAgent extends AIChatAgent<Env> {
 (Skill selected by the SkillsAgent registry: "${skill.id}". The user does not need to know the internal mechanics, but you must behave according to the active skill.)`;
 
     const result = streamText({
-      model: getChatModel(this.env),
+      model: await getChatModel(this.env),
       system,
       messages: await convertToModelMessages(this.messages as UIMessage[]),
       tools: skill.tools,

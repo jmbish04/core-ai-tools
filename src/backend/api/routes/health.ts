@@ -200,7 +200,7 @@ class HealthCoordinator {
 
     const checks = await Promise.all([
       this.checkD1(),
-      this.checkWorkersAI(),
+      this.checkGuardian(),
       ...AGENT_BINDINGS.map((descriptor) => this.pingAgent(descriptor)),
     ]);
 
@@ -262,35 +262,42 @@ class HealthCoordinator {
     }
   }
 
-  private async checkWorkersAI(): Promise<CheckResult> {
+  /**
+   * Guardian is the ONLY door for an LLM call, so its service binding is what a
+   * health check must look for.
+   *
+   * This used to check `env.AI`. There is no `ai` binding any more and there
+   * must not be one: `env.AI.run` is account-implicit, always bills the paid
+   * account, and cannot be metered per-account. Checking for it taught every
+   * reader of this file that Workers AI was a supported path.
+   *
+   * Presence only — a reachability probe would spend a subrequest, and on a
+   * public endpoint that is a lever anyone can pull.
+   */
+  private checkGuardian(): CheckResult {
     const start = Date.now();
-    try {
-      const binding = (this.env as unknown as { AI?: unknown }).AI;
-      if (!binding) {
-        return {
-          category: "ai",
-          name: "workers_ai_binding",
-          status: "skipped",
-          message: "env.AI binding not present",
-          durationMs: Date.now() - start,
-        };
-      }
+    const env = this.env as unknown as Record<string, unknown>;
+    const rpc = Boolean(env.GUARDIAN);
+    const http = Boolean(env.GUARDIAN_HTTP);
+    if (rpc && http) {
       return {
         category: "ai",
-        name: "workers_ai_binding",
+        name: "guardian_bindings",
         status: "ok",
-        message: "env.AI binding available",
-        durationMs: Date.now() - start,
-      };
-    } catch (error) {
-      return {
-        category: "ai",
-        name: "workers_ai_binding",
-        status: "fail",
-        message: error instanceof Error ? error.message : "Unknown AI binding failure",
+        message: "GUARDIAN (RPC) + GUARDIAN_HTTP are bound",
         durationMs: Date.now() - start,
       };
     }
+    return {
+      category: "ai",
+      name: "guardian_bindings",
+      status: "fail",
+      message:
+        `core-guardian is not fully bound (GUARDIAN=${rpc}, GUARDIAN_HTTP=${http}) — ` +
+        "every LLM call in this Worker routes through it, so AI is unavailable",
+      details: { guardianRpc: rpc, guardianHttp: http },
+      durationMs: Date.now() - start,
+    };
   }
 
   private async pingAgent(descriptor: DOBindingDescriptor): Promise<CheckResult> {

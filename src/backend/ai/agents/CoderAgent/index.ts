@@ -104,7 +104,7 @@ export class CoderAgent extends Agent<Env, CoderState> {
 
     try {
       const { text } = await generateText({
-        model: getChatModel(this.env),
+        model: await getChatModel(this.env),
         system: SYSTEM_PROMPT,
         prompt: task,
         maxOutputTokens: 2048,

@@ -206,7 +206,7 @@ threadsRouter.openapi(
 
     try {
       const { text } = await generateText({
-        model: getChatModel(c.env, modelId),
+        model: await getChatModel(c.env, modelId),
         system:
           "You generate short follow-up prompts the USER might tap next in a chat. " +
           "Return EXACTLY 3 suggestions, each on its own line, no numbering, no quotes, " +
@@ -275,7 +275,7 @@ threadsRouter.openapi(
     let title = "New chat";
     try {
       const { text } = await generateText({
-        model: getChatModel(c.env, row.model),
+        model: await getChatModel(c.env, row.model),
         system:
           "You write a short chat title (3-7 words) summarising the user's message. " +
           "Return ONLY the title — no quotes, no trailing punctuation, no preamble.",

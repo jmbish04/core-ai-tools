@@ -417,7 +417,7 @@ Respond with only the bullet list. No preamble, no headings.`;
     // --- Call Workers AI --------------------------------------------------
     let insight: string;
     try {
-      const model = getChatModel(c.env);
+      const model = await getChatModel(c.env);
       const result = await generateText({
         model,
         prompt,

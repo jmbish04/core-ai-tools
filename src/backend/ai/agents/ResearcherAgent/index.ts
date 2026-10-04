@@ -127,7 +127,7 @@ export class ResearcherAgent extends Agent<Env, ResearcherState> {
 
     try {
       const { text } = await generateText({
-        model: getChatModel(this.env),
+        model: await getChatModel(this.env),
         system: SYSTEM_PROMPT,
         prompt: task,
         maxOutputTokens: 1024,
