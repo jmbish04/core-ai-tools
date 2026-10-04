@@ -135,6 +135,11 @@ for (const p of ["sessions", "revisions", "library", "models", "prompts", "video
 
 app.route("/api/auth", authRouter);
 app.route("/api/health", healthRouter);
+// Also at the conventional root path. `/health` is what an uptime monitor and
+// every ops runbook reaches for, and it must NOT be behind the page gate — see
+// `_worker.ts#isApiPath`, which has the matching entry. Both paths are the same
+// router, so the two cannot drift.
+app.route("/health", healthRouter);
 app.route("/api/config", configRouter);
 app.route("/api/admin", adminRouter);
 app.route("/api/docs", docsRouter);

@@ -44,6 +44,13 @@ export default defineConfig(async () => {
     // `lib/nav.ts`, which decides every page's shell chrome, is one of them.
     resolve: {
       alias: [
+        // Most specific first — a bare `@/db` must not be eaten by `@/backend/*`.
+        // These two are what `api/routes/health.ts` imports; without them the
+        // health route could not be imported by a test at all, which is part of
+        // why its "returns 200 while running zero checks" bug went unnoticed.
+        { find: /^@db\/schemas$/, replacement: path.resolve(__dirname, "src/backend/db/schema") },
+        { find: /^@\/db$/, replacement: path.resolve(__dirname, "src/backend/db") },
+        { find: /^@\/db\/(.*)$/, replacement: path.resolve(__dirname, "src/backend/db/$1") },
         { find: /^@\/backend\/(.*)$/, replacement: path.resolve(__dirname, "src/backend/$1") },
         { find: /^@\/lib\/(.*)$/, replacement: path.resolve(__dirname, "src/frontend/lib/$1") },
         {
