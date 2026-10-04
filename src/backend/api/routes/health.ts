@@ -1,20 +1,43 @@
 /**
- * @fileoverview Health check API routes for the Career Orchestrator Worker.
+ * @fileoverview Health check API routes. Mounted at BOTH `/api/health` and the
+ * conventional root `/health` (see `api/index.ts` + `_worker.ts#isApiPath`).
  *
- * Provides three endpoints:
- *  - `GET  /api/health`        — Quick liveness check (returns latest run from D1)
- *  - `GET  /api/health/latest` — Fetch the most recent run with all results
- *  - `POST /api/health/run`    — Run a full diagnostic, persist to D1, return results
+ *  - `GET  /api/health`        — LIVE probe. Runs cheap checks now, returns a
+ *                                verdict, and answers **503 when unhealthy**.
+ *  - `GET  /api/health/latest` — the last PERSISTED deep run (no checks run).
+ *  - `POST /api/health/run`    — full diagnostic, persisted to D1.
  *
- * Uses the relational D1 schema (`health_runs` + `health_results`). The
- * `runAllChecks` path iterates every registered Durable Object agent binding,
- * opens a stub, calls a no-op `ping` RPC, and records latency per agent.
+ * ## Why `GET /` runs checks instead of reading the last run
+ *
+ * It used to return `getLatestRun()` — the last persisted run, without running
+ * anything. No run had ever been persisted, so the deployed Worker answered
+ * `{"run":null,"results":[]}` with a **200** forever. Any uptime monitor read
+ * that as healthy while zero checks had executed: an instrument structurally
+ * incapable of reporting a problem, which is worse than having no endpoint
+ * because it produces a record that looks like diligence.
+ *
+ * Three rules this endpoint now keeps, and a test plants a regression for each:
+ *
+ * 1. **It reads what it depends on.** A binding being present and a table being
+ *    readable are different facts, so the D1 check SELECTs from a real
+ *    application table rather than `SELECT 1`.
+ * 2. **Expectations are DECLARED, so missing is an error and never an
+ *    inference.** `REQUIRED_BINDINGS` lists what must exist; an absent binding
+ *    fails the verdict instead of being silently skipped.
+ * 3. **A failure changes the verdict AND the status code.** `unhealthy` → 503.
+ *    A checker that only reads the status line still sees red.
+ *
+ * It deliberately does NOT run the deep diagnostic or write to D1: this route is
+ * public and unauthenticated, so persisting a row per request would hand anyone
+ * an unauthenticated write amplifier. The deep path stays `POST /api/health/run`,
+ * and its last result rides along here as `lastDeepRun` context — never as the
+ * answer.
  */
 
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { desc, eq } from "drizzle-orm";
 
-import { healthRuns, healthResults } from "@db/schemas";
+import { healthRuns, healthResults, modelCatalog } from "@db/schemas";
 import { getDb } from "@/db";
 
 // ---------------------------------------------------------------------------
@@ -41,6 +64,19 @@ const AGENT_BINDINGS: DOBindingDescriptor[] = [
 ];
 
 const PING_TIMEOUT_MS = 2000;
+
+/**
+ * Bindings this Worker cannot serve a request without.
+ *
+ * Declared rather than discovered on purpose: with a list, an absent binding is
+ * an ERROR. Without one, it is an inference — the check silently has nothing to
+ * say, and "not present" reads identically to "not needed". That exact shape is
+ * what let a required DSN go missing while `/health` still answered `ok`.
+ *
+ * Keep it to bindings whose absence breaks a live request path. Optional or
+ * surface-specific bindings belong in the deep run, where `skipped` is honest.
+ */
+const REQUIRED_BINDINGS = ["DB", "SESSION_DO", "FOLDER_DO", "OAUTH_KV"] as const;
 
 type CheckResult = {
   category: "database" | "ai" | "agents" | "binding";
@@ -74,6 +110,85 @@ class HealthCoordinator {
       .where(eq(healthResults.runId, latest.id));
 
     return { run: latest, results };
+  }
+
+  // -----------------------------------------------------------------------
+  // Live probe (GET /) — runs now, persists nothing
+  // -----------------------------------------------------------------------
+
+  /**
+   * Cheap checks executed per request: every REQUIRED_BINDINGS entry is present,
+   * and a real application table is readable. No D1 writes, no DO pings (a
+   * 2s-timeout fan-out does not belong on a public endpoint).
+   */
+  async liveProbe(): Promise<{
+    status: "healthy" | "degraded" | "unhealthy" | "unknown";
+    checks: CheckResult[];
+    durationMs: number;
+  }> {
+    const start = Date.now();
+    const checks = [...this.checkRequiredBindings(), await this.checkD1TableRead()];
+    return { status: aggregateStatus(checks), checks, durationMs: Date.now() - start };
+  }
+
+  /** One result per declared binding. Absent → `fail`, never `skipped`. */
+  private checkRequiredBindings(): CheckResult[] {
+    const env = this.env as unknown as Record<string, unknown>;
+    return REQUIRED_BINDINGS.map((name) => {
+      const start = Date.now();
+      const present = env[name] !== undefined && env[name] !== null;
+      return {
+        category: "binding" as const,
+        name: `binding_${name.toLowerCase()}`,
+        status: present ? ("ok" as const) : ("fail" as const),
+        message: present
+          ? `env.${name} is bound`
+          : `env.${name} is REQUIRED and missing — declared in REQUIRED_BINDINGS`,
+        durationMs: Date.now() - start,
+      };
+    });
+  }
+
+  /**
+   * Reads a real table, not `SELECT 1`.
+   *
+   * `SELECT 1` proves the binding answers; it does not prove a table is
+   * readable. Those came apart in production once already — a service had no
+   * permission to read a table it needed and every binding-level check stayed
+   * green while the endpoint 500'd on every request.
+   */
+  private async checkD1TableRead(): Promise<CheckResult> {
+    const start = Date.now();
+    try {
+      const db = getDb(this.env);
+      const rows = await db.select({ modelId: modelCatalog.modelId }).from(modelCatalog).limit(1);
+      const durationMs = Date.now() - start;
+      // Readable but empty is a real signal: model resolution has no config to
+      // resolve against, so the Worker cannot serve an edit. Degraded, not ok.
+      return rows.length > 0
+        ? {
+            category: "database",
+            name: "d1_table_read",
+            status: "ok",
+            message: "model_catalog is readable",
+            durationMs,
+          }
+        : {
+            category: "database",
+            name: "d1_table_read",
+            status: "warn",
+            message: "model_catalog is readable but EMPTY — run POST /api/models/sync",
+            durationMs,
+          };
+    } catch (error) {
+      return {
+        category: "database",
+        name: "d1_table_read",
+        status: "fail",
+        message: error instanceof Error ? error.message : "Unknown D1 table-read failure",
+        durationMs: Date.now() - start,
+      };
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -302,6 +417,29 @@ const latestResponseSchema = z.object({
   results: z.array(healthResultSchema),
 });
 
+/** A live check — same shape as a persisted result, minus the run/row ids. */
+const liveCheckSchema = z.object({
+  category: categoryEnum,
+  name: z.string(),
+  status: checkStatusEnum,
+  message: z.string().optional(),
+  details: z.record(z.string(), z.unknown()).optional(),
+  durationMs: z.number(),
+});
+
+/**
+ * The live probe's answer. `status` is the verdict and it drives the HTTP code
+ * (`unhealthy` → 503), so a monitor reading only the status line still sees red.
+ * `lastDeepRun` is CONTEXT from `POST /api/health/run`, never the verdict.
+ */
+const liveResponseSchema = z.object({
+  status: healthStatusEnum,
+  checkedAt: z.string(),
+  durationMs: z.number(),
+  checks: z.array(liveCheckSchema),
+  lastDeepRun: healthRunSchema.nullable(),
+});
+
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
@@ -309,10 +447,12 @@ const latestResponseSchema = z.object({
 export const healthRouter = new OpenAPIHono<{ Bindings: Env }>();
 
 /**
- * GET /api/health — Quick liveness / latest run.
+ * GET /api/health (and GET /health) — LIVE probe with a verdict.
  *
- * Returns the latest persisted run from D1 without re-running checks.
- * If no run exists yet, returns { run: null, results: [] }.
+ * Runs the cheap checks now and answers 503 when the verdict is `unhealthy`.
+ * BOTH status codes are declared on the route: zod-openapi enforces the
+ * response union, so returning an undeclared status is a type error rather than
+ * a surprise at runtime.
  */
 healthRouter.openapi(
   createRoute({
@@ -321,15 +461,36 @@ healthRouter.openapi(
     operationId: "healthCheck",
     responses: {
       200: {
-        description: "Latest health run from D1 (no re-run)",
-        content: { "application/json": { schema: latestResponseSchema } },
+        description: "Live probe — healthy or degraded",
+        content: { "application/json": { schema: liveResponseSchema } },
+      },
+      503: {
+        description: "Live probe — unhealthy (a required binding or D1 read failed)",
+        content: { "application/json": { schema: liveResponseSchema } },
       },
     },
   }),
   async (c) => {
     const coordinator = new HealthCoordinator(c.env);
-    const latest = await coordinator.getLatestRun();
-    return c.json({ run: latest?.run ?? null, results: latest?.results ?? [] }, 200);
+    const probe = await coordinator.liveProbe();
+
+    // Context only. A failure to read history must not mask the live verdict,
+    // so this is best-effort: the probe above already decided the answer.
+    let lastDeepRun: Awaited<ReturnType<HealthCoordinator["getLatestRun"]>>["run"] = null;
+    try {
+      lastDeepRun = (await coordinator.getLatestRun()).run;
+    } catch {
+      lastDeepRun = null;
+    }
+
+    const body = {
+      status: probe.status,
+      checkedAt: new Date().toISOString(),
+      durationMs: probe.durationMs,
+      checks: probe.checks,
+      lastDeepRun,
+    };
+    return c.json(body, probe.status === "unhealthy" ? 503 : 200);
   },
 );
 

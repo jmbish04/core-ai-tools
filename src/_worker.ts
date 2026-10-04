@@ -27,6 +27,10 @@ import { handleInboundEmail } from "./backend/email/inbound";
 import { buildOAuthHandler } from "./backend/mcp/oauth";
 import { handleInternalToolCall } from "./backend/mcp/server";
 import { verifySessionCookie } from "./backend/lib/cookies";
+// Pure path predicates, extracted so the vitest suite can import them — this
+// module cannot be imported in tests (Astro virtual manifest), which is why
+// the /health gate bug had no test. See routing/path-gates.ts.
+import { apiPathFor, isApiPath, isPageRequest } from "./backend/routing/path-gates";
 import { createCoreContext, reapStuckRevisions } from "./backend/core";
 import { drainUsageOutbox } from "./backend/ai/dispatch";
 
@@ -63,42 +67,6 @@ import { FolderDO } from "./backend/realtime/folder-do";
 // so these named exports ARE the deployed Worker's DO exports.
 export { ChatBroker, NotificationsAgent, SessionDO, FolderDO };
 
-/**
- * True for an HTML page navigation that should be gated behind the session
- * cookie. Excludes /login (the gate's own escape hatch), the API + agent/ws/mcp
- * surfaces (they enforce their own auth), OAuth discovery, Astro islands/assets
- * (`/_*`), and any request for a file with an extension (favicon, .css, .js…).
- */
-function isPageRequest(pathname: string): boolean {
-  if (pathname === "/login") return false;
-  if (
-    pathname.startsWith("/api") ||
-    pathname.startsWith("/agents") ||
-    pathname.startsWith("/ws") ||
-    pathname.startsWith("/realtime") ||
-    pathname === "/mcp" ||
-    pathname.startsWith("/_") ||
-    pathname.startsWith("/.well-known")
-  ) {
-    return false;
-  }
-  if (/\.[a-z0-9]+$/i.test(pathname)) return false;
-  return true;
-}
-
-/** True for paths the Hono API owns (REST + OpenAPI doc surfaces). */
-function isApiPath(pathname: string): boolean {
-  return (
-    pathname.startsWith("/api/") ||
-    pathname === "/openapi.json" ||
-    pathname === "/swagger" ||
-    pathname === "/scalar" ||
-    pathname === "/scaler"
-  );
-  // NOTE: `/docs` is intentionally NOT an API path — it is served as an Astro
-  // SSR page (`src/frontend/pages/docs/index.astro`). The docs metadata API is
-  // mounted at `/api/docs/*`, which is covered by the `/api/` prefix above.
-}
 
 /**
  * The base Worker handler. `request as any` at the call sites bridges the
@@ -165,8 +133,16 @@ const base = {
       }
     }
 
-    // 2. REST API + OpenAPI docs → Hono.
+    // 2. REST API + OpenAPI docs → Hono. `apiPathFor` maps a public path to the
+    // path Hono mounts it at; today that is only `/health` → `/api/health`, so
+    // the health router is registered once and openapi.json stays valid.
     if (isApiPath(url.pathname)) {
+      const served = apiPathFor(url.pathname);
+      if (served !== url.pathname) {
+        const rewritten = new URL(url);
+        rewritten.pathname = served;
+        return honoApp.fetch(new Request(rewritten, request) as any, env, ctx);
+      }
       return honoApp.fetch(request as any, env, ctx);
     }
 
