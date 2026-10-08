@@ -220,32 +220,18 @@ work, and its pulls overwrite local rows that may belong to a session still
 running. Run it only when reconciling the stores **is** your assigned task, and
 read the dry-run plan first (`dry_run` defaults to `True` for that reason).
 
-## A SessionEnd hook backstops all of this
+## The colby-maestro plugin enforces this
 
-`~/.claude/hooks/maestro-session-end.py` runs when a session ends and publishes
-local-only work by itself. It is deliberately narrow:
+The `colby-maestro` plugin (published from colby-ecosystem, enabled in user settings and in each repo's `.claude/settings.json`) does the tracking deterministically:
 
-- **Creates** a task on the Worker only when the Worker returns **404** for it —
-  a create cannot overwrite anything, so no diff is needed.
-- **Appends** worklog entries the Worker does not have, matched on
-  **author + kind + body text**, never on timestamp (the Worker stamps its own
-  `created_at` on a pushed entry, so a time-based rule re-pushes forever; and
-  "newer than the remote max" silently skips a local note written before some
-  other surface wrote remotely — both measured).
-- Remaps a `kind` the REST API rejects (e.g. `claim`) to `note`, keeping the
-  original in the text, instead of losing the entry to a 400.
-- **Never pulls, never updates an existing task, never runs `worker_sync_tool`.**
-- Always exits 0. A session must not fail to end because the Worker was down.
+- **Session start:** matches the repo to its project (git remote, then folder) and injects the active tasks.
+- **Prompt:** task ids you name are linked to the session.
+- **PRs:** `gh pr create` links the PR to every linked task.
+- **Stop:** a session that edited files is stopped once if no task is linked, or if no linked task changed since the edits.
+- **Session end:** claims are released and a final heartbeat is sent.
+- **Guards:** edits in a main checkout or a reused worktree are blocked; symlinking `node_modules` is blocked. A repo that is never worked in a worktree (`~/bin`, `~/system-configs`) opts out with an empty `.claude/worktree-optional` file.
 
-It keeps a watermark (`~/.claude/maestro-session-end.state`) so a steady-state
-run costs ~0.1s; a first run sweeps a 12h window (116 tasks, ~14s here). Every
-run appends a tally to `~/.claude/maestro-session-end.log` — including when it
-did nothing, because a hook that goes quiet from a bug looks exactly like one
-that goes quiet because all is well. `MAESTRO_HOOK_DISABLE=1` turns it off.
-
-**This does not excuse you from the rules above.** The hook runs after your
-session has ended, so it cannot help a teammate who needed your status *during*
-it, and it only fixes the unambiguous cases. It is a backstop, not the plan.
+Use `maestro-task` for status and worklog (`maestro-task status <id> review`, `maestro-task log <id> note "..."`), and the `maestro-worklog` skill for which kind to write. The old `maestro-session-end.py` (local-mirror sync) is retired to `~/.claude/hooks/retired/`.
 
 ## Before you finish
 
