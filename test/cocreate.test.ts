@@ -11,7 +11,10 @@ import { describe, expect, it } from "vitest";
 import {
   addPromptVersion,
   answerQuestions,
+  callModel,
   cleanRefinedPrompt,
+  ConfigError,
+  guardianReplyText,
   clarificationInstruction,
   createCocreateSession,
   getCocreateSession,
@@ -87,6 +90,43 @@ describe("instruction builders", () => {
     expect(cleanRefinedPrompt('**Refined Prompt:** "A tabby cat."')).toBe("A tabby cat.");
     expect(cleanRefinedPrompt("Updated prompt: A cat")).toBe("A cat");
     expect(cleanRefinedPrompt("A prompt about prompts.")).toBe("A prompt about prompts.");
+  });
+});
+
+describe("guardian is the only AI source", () => {
+  const withGuardian = (run?: (b: unknown) => Promise<unknown>) => {
+    const c = ctx();
+    return { ...c, env: { ...c.env, GUARDIAN: run ? { run } : undefined } as unknown as Env };
+  };
+
+  it("sends an unpinned request to guardian and parses a fenced JSON reply", async () => {
+    let sent: any;
+    const c = withGuardian(async (b) => {
+      sent = b;
+      return { status: 200, provider: "ollama", model: "glm-5.3", body: { choices: [{ message: { content: '```json\n[{"question":"Q?","options":["a"]}]\n```' } }] } };
+    });
+    const out = await callModel(c, { instruction: "ask", sessionId: "s", op: "questions" });
+    expect(out.structured).toEqual([{ question: "Q?", options: ["a"] }]);
+    expect(out.model).toBe("ollama/glm-5.3");
+    expect(sent).toMatchObject({ project: "core-ai-tools", importance: "medium", task: "cocreate-questions" });
+    // No provider or model pinned: guardian chooses what this project may use.
+    expect(sent.provider).toBeUndefined();
+    expect(sent.model).toBeUndefined();
+  });
+
+  it("surfaces a guardian refusal instead of falling back", async () => {
+    const c = withGuardian(async () => ({ status: 429, body: { error: "project core-ai-tools has usage-based fallback disabled" } }));
+    await expect(callModel(c, { instruction: "x", sessionId: "s", op: "graph" })).rejects.toThrow(/refused \(429\)/);
+  });
+
+  it("refuses to run at all without the GUARDIAN binding", async () => {
+    await expect(callModel(withGuardian(), { instruction: "x", sessionId: "s", op: "graph" })).rejects.toBeInstanceOf(ConfigError);
+  });
+
+  it("reads reply text through nested envelopes", () => {
+    expect(guardianReplyText({ body: { body: { choices: [{ message: { content: "hi" } }] } } })).toBe("hi");
+    expect(guardianReplyText({ body: { output_text: "yo" } })).toBe("yo");
+    expect(guardianReplyText({ status: 500 })).toBe("");
   });
 });
 

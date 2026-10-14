@@ -1,9 +1,10 @@
 /**
- * @fileoverview The co-creator's model calls. Every one goes through `dispatch`
- * (the single provider choke point: guardian routing + usage emission + error
- * classification) on the `understand` task model — the same text-capable model
- * the rest of the product uses for captioning and blueprints. No new task key:
- * the co-creator's work is understanding a prompt, not producing pixels.
+ * @fileoverview The co-creator's model calls. core-guardian is the ONLY AI source
+ * for core-ai-tools (Justin, 2026-10-14 — docs/decisions/2026-10-14-guardian-
+ * breaker-blocks-cocreate.md), so every call goes to guardian's AI router over the
+ * `GUARDIAN` RPC binding with NO provider or model pinned: guardian picks a model
+ * this project is allowed to use (metered, budgeted, breaker-gated). There is no
+ * fallback — a missing binding or a refusal is an error the user sees.
  *
  * JSON outputs are validated with zod. A model that returns the wrong shape is a
  * ProviderError the user sees, never a silently empty graph — the demo returned
@@ -12,42 +13,86 @@
 
 import { z } from "zod";
 
-import { dispatch } from "@/backend/ai/dispatch";
-import { requireModel, resolveModelId } from "@/backend/ai/registry";
 import type { BeliefGraph } from "@/backend/db/schema";
 import type { CoreContext } from "../context";
-import { ProviderError } from "../errors";
+import { ConfigError, ProviderError } from "../errors";
+
+/** Project name core-guardian attributes this Worker's spend to. */
+const GUARDIAN_PROJECT = "core-ai-tools";
 
 export interface CallOptions {
   instruction: string;
   /** Reference image, base64, when the session has one. */
   imageBase64?: string;
-  /** For usage attribution: the co-creator session id (or "consultant"). */
+  /** The co-creator session id (or "consultant"); kept for call-site symmetry. */
   sessionId: string;
   op: "graph" | "questions" | "refine" | "consult";
   waitUntil?: (p: Promise<unknown>) => void;
 }
 
+type GuardianRpc = { run?: (body: unknown) => Promise<unknown> };
+
 /**
- * Run one understand-model call.
+ * Pull the reply text out of whatever guardian returned. Guardian wraps the
+ * provider payload (`{ status, body }`, sometimes nested once more), and the
+ * payload is chat-completions shaped for the routes it picks.
  *
- * @returns The raw text, parsed JSON (when the reply was JSON) and the model id.
- * @throws ProviderError when the model returns nothing.
+ * @returns The text, or "" when there is none.
+ */
+export function guardianReplyText(raw: unknown): string {
+  let node: any = raw;
+  for (let i = 0; i < 4 && node && typeof node === "object"; i++) {
+    const content = node.choices?.[0]?.message?.content;
+    if (typeof content === "string") return content;
+    if (Array.isArray(content)) return content.map((c: any) => c?.text ?? "").join("");
+    if (typeof node.output_text === "string") return node.output_text;
+    if (typeof node.message?.content === "string") return node.message.content;
+    node = node.body;
+  }
+  return typeof node === "string" ? node : "";
+}
+
+/**
+ * Run one text call through core-guardian's router.
+ *
+ * @returns The raw text, parsed JSON (when the reply was JSON) and the model guardian chose.
+ * @throws ConfigError when the GUARDIAN binding is missing; ProviderError when
+ *   guardian refuses (breaker, budget, policy) or the model returns nothing.
  */
 export async function callModel(ctx: CoreContext, o: CallOptions): Promise<{ text: string; structured: unknown; model: string }> {
-  const model = requireModel(await resolveModelId(ctx.db, { taskKey: "understand" }));
-  const out = await dispatch({
-    env: ctx.env,
-    db: ctx.db,
-    capability: "understand",
-    model,
-    request: { model, prompt: o.instruction, inputImageBase64: o.imageBase64, thinkingLevel: "minimal" },
-    meta: { sessionUuid: o.sessionId, revisionId: `cocreate-${o.op}-${crypto.randomUUID()}`, surface: "ui" },
-    waitUntil: o.waitUntil,
-  });
-  const text = out.outputText ?? "";
-  if (!text.trim() && out.structured === undefined) throw new ProviderError(`Co-creator ${o.op}: the model returned nothing.`);
-  return { text, structured: out.structured ?? extractJson(text), model: model.id };
+  const rpc = (ctx.env as unknown as { GUARDIAN?: GuardianRpc }).GUARDIAN;
+  if (typeof rpc?.run !== "function") {
+    throw new ConfigError("core-guardian is the only AI source for core-ai-tools, and the GUARDIAN binding is not available.");
+  }
+  const content = o.imageBase64
+    ? [
+        { type: "text", text: o.instruction },
+        { type: "image_url", image_url: { url: `data:image/png;base64,${o.imageBase64}` } },
+      ]
+    : o.instruction;
+
+  let raw: any;
+  try {
+    raw = await rpc.run({
+      project: GUARDIAN_PROJECT,
+      importance: "medium",
+      task: `cocreate-${o.op}`,
+      ...(o.imageBase64 ? { capabilities: ["vision"] } : {}),
+      input: { messages: [{ role: "user", content }] },
+    });
+  } catch (err) {
+    throw new ProviderError(`Co-creator ${o.op}: core-guardian could not be reached (${(err as Error)?.message ?? err}).`, err);
+  }
+  // Guardian reports the provider's status on the outer or the inner envelope.
+  const status = Number(raw?.status ?? raw?.body?.status ?? 200);
+  const text = guardianReplyText(raw);
+  if (status >= 400) {
+    const detail = text || JSON.stringify(raw?.body ?? raw ?? {}).slice(0, 300);
+    throw new ProviderError(`Co-creator ${o.op}: core-guardian refused (${status}): ${detail}`);
+  }
+  if (!text.trim()) throw new ProviderError(`Co-creator ${o.op}: the model returned nothing.`);
+  const model = [raw?.provider, raw?.model].filter(Boolean).join("/") || "core-guardian";
+  return { text, structured: extractJson(text), model };
 }
 
 /** Last-resort JSON extraction for a reply wrapped in prose. */

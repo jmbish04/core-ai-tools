@@ -1261,9 +1261,17 @@ persisted so a session can be revisited. Core: `core/cocreate/`; REST: `/api/coc
   cross-session import lineage), `cocreate_generations` (one row per image slot, FK to
   `library_images` — the Cloudflare Images URL is derived by join, never copied),
   `cocreate_consultations` + `cocreate_consultation_matches` (M:N, FK-enforced citations).
-- **Model calls**: all through `dispatch` on the `understand` task model, JSON validated with
-  zod (`core/cocreate/ai.ts`); a wrong shape is a ProviderError, never an empty result.
-  Images: `generateImages`, which now takes an optional `referenceImageId` (image-to-image).
+- **core-guardian is the ONLY AI source for core-ai-tools (Justin, 2026-10-14).** The
+  co-creator's text calls go to guardian's router over the `GUARDIAN` RPC binding with NO
+  provider/model pinned (`core/cocreate/ai.ts#callModel`) — guardian picks what the project may
+  use; measured: `ollama/glm-5.3`, $0.00. No fallback: missing binding → ConfigError, refusal →
+  ProviderError. Input is chat `messages`; a bare string is rejected by the provider. Replies come
+  fenced (```json) — `extractJson` handles it. JSON validated with zod.
+- **Why pinning `provider: google` fails**: guardian project `core-ai-tools` has
+  `allowUsageBasedFallback: false` ("may use metered API providers as last resort"), so metered
+  Gemini is refused with 429 `usage-based fallback disabled` — a policy, not a spent budget.
+- **Images still blocked**: `generateImages` (now with optional `referenceImageId`) goes Gemini →
+  metered → refused. Guardian's `image_editing` use case maps only to text LLMs.
 - **Consultant** reads the newest 150 answered, non-imported answers from other sessions and
   drops any cited id not in that set (`keepKnownMatches`). Ceiling noted in code: move to
   Vectorize retrieval when the pool outgrows one prompt.
@@ -1274,5 +1282,4 @@ persisted so a session can be revisited. Core: `core/cocreate/`; REST: `/api/coc
   patches every file in `./drizzle`). After generating, restore them from HEAD before
   committing; `migrate:check` fails loudly if you do not. `migrate:remote` runs `db:generate`
   too — apply with `npx wrangler d1 migrations apply DB --remote` after `migrate:check`.
-- **Live model calls are blocked by guardian's breaker** as of 2026-10-14 —
-  `docs/decisions/2026-10-14-guardian-breaker-blocks-cocreate.md`.
+- Decision record: `docs/decisions/2026-10-14-guardian-breaker-blocks-cocreate.md`.

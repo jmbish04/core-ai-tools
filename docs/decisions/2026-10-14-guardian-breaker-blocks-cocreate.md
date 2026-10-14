@@ -1,6 +1,6 @@
 ---
 date: 2026-10-14
-status: open
+status: decided
 owner: Justin
 tags: [core-guardian, ai-routing, budget, core-ai-tools, cocreate]
 ---
@@ -58,4 +58,28 @@ analyze one prompt and confirm the graph and questions render.
 
 ## Decision
 
-_(pending)_
+**2026-10-14, Justin:** "core-ai-tools should ONLY use core-guardian as its singular ai
+source."
+
+What that resolved, measured the same day:
+
+- The 429 is guardian's project policy, not a spent budget: `GET /api/guardian/projects/core-ai-tools`
+  → `allowUsageBasedFallback: false`, `spendThisMonthUsd: 0`, no circuit tripped. Guardian
+  documents the flag as "whether a project may use metered API providers as last resort".
+  Pinning `provider: google` asks for a metered provider, so it is refused.
+- With NO provider/model pinned, guardian routes core-ai-tools to `ollama/glm-5.3` at
+  $0.00. All four co-creator instructions (graph, questions, refine, consultant) returned
+  valid output that way.
+- **Done:** the co-creator's text calls now go only to guardian's router, unpinned, with no
+  fallback (`core/cocreate/ai.ts`). A missing binding or a refusal is an error.
+- **Still blocked:** image generation. Guardian has no free image route for this project
+  (its `image_editing` use case maps only to text LLMs), and Gemini/OpenAI image models are
+  metered. Images need either `allowUsageBasedFallback: true` for core-ai-tools (still
+  guardian-only — it permits metered providers *through* guardian), or a free image route in
+  guardian.
+- **Not yet aligned with the decision (outside the co-creator):** `providers/google-image.ts`
+  falls back to a direct Gemini SDK call when guardian answers 422 "not priceable" or is
+  unreachable, and `providers/openai-image.ts` calls OpenAI through AI Gateway, never
+  guardian (OpenAI is the `image_edit` default). Raised separately for a decision.
+
+Status: decided.
