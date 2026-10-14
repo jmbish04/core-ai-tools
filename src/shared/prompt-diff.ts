@@ -38,9 +38,11 @@ export function splitClauses(text: string): string[] {
 export function diffPrompts(before: string, after: string): DiffOp[] {
   const a = splitClauses(before);
   const b = splitClauses(after);
-  // Compare case- and whitespace-insensitively; display the original text.
-  const key = (s: string) => s.toLowerCase();
-  const lcs: number[][] = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
+  // Compare ignoring case and the trailing clause punctuation (a clause that only
+  // moved from the end — "lights." → "lights," — is not a change); display the
+  // newer text.
+  const key = (s: string) => s.toLowerCase().replace(/[.!?;,:]+$/, "");
+  const lcs: number[][] = Array.from({ length: a.length + 1 }, () => Array.from({ length: b.length + 1 }, () => 0));
   for (let i = a.length - 1; i >= 0; i--) {
     for (let j = b.length - 1; j >= 0; j--) {
       lcs[i][j] = key(a[i]) === key(b[j]) ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);

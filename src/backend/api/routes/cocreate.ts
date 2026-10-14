@@ -45,7 +45,8 @@ const graphUpdate = z.discriminatedUnion("type", [
 const ids = z.array(z.string().max(64)).max(50);
 
 /** `waitUntil` for non-blocking usage emission inside dispatch. */
-const wait = (c: { executionCtx: ExecutionContext }) => (p: Promise<unknown>) => c.executionCtx.waitUntil(p);
+const wait = (c: { executionCtx: { waitUntil(p: Promise<unknown>): void } }) => (p: Promise<unknown>) =>
+  c.executionCtx.waitUntil(p);
 
 cocreateRouter.openapi(
   createRoute({

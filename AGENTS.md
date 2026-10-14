@@ -1247,3 +1247,32 @@ every `Env` in the Worker (measured: 11 tsc errors became 42). `test/env.d.ts` e
 gates are separate: `npx tsc --noEmit -p .` (10 known pre-existing errors — WorkflowsAgent,
 AssistantModal, MindMap, drive-explorer, reui/data-grid, JsonPayloadEditor) and
 `npx vitest run` (208 green across 23 files, measured 2026-10-01).
+
+## Prompt co-creator + consultant (`/cocreate`, migration `0018`)
+
+Port of the "Proactive Co-Creator" demo (`docs/proactive-co-creator/`, image mode only),
+persisted so a session can be revisited. Core: `core/cocreate/`; REST: `/api/cocreate/*`
+(auth-gated); UI: `components/cocreate/`, pages `/cocreate` + `/cocreate/[id]`.
+
+- **Tables (`db/schemas/cocreate/`)**: `cocreate_sessions` (soft-archive; `current_version_id`
+  is a soft ref to avoid a cycle), `cocreate_prompt_versions` (append-only revision log,
+  unique `(session_id, version)`, optimistic retry), `cocreate_answers` (the questionnaire;
+  `applied_in_version_id` says which version absorbed an answer; `source_answer_id` is
+  cross-session import lineage), `cocreate_generations` (one row per image slot, FK to
+  `library_images` — the Cloudflare Images URL is derived by join, never copied),
+  `cocreate_consultations` + `cocreate_consultation_matches` (M:N, FK-enforced citations).
+- **Model calls**: all through `dispatch` on the `understand` task model, JSON validated with
+  zod (`core/cocreate/ai.ts`); a wrong shape is a ProviderError, never an empty result.
+  Images: `generateImages`, which now takes an optional `referenceImageId` (image-to-image).
+- **Consultant** reads the newest 150 answered, non-imported answers from other sessions and
+  drops any cited id not in that set (`keepKnownMatches`). Ceiling noted in code: move to
+  Vectorize retrieval when the pool outgrows one prompt.
+- **Diff** = `src/shared/prompt-diff.ts` (clause-level LCS) rendered by ReUI `CodeBlock`.
+  `CodeBlock` applies `diff` line states ONLY when `language` resolves to a registered
+  grammar — with no language it silently renders plain lines. `PromptDiff` passes `markdown`.
+- **Trap: `pnpm run db:generate` rewrites the 16 grandfathered shipped migrations** (its fixer
+  patches every file in `./drizzle`). After generating, restore them from HEAD before
+  committing; `migrate:check` fails loudly if you do not. `migrate:remote` runs `db:generate`
+  too — apply with `npx wrangler d1 migrations apply DB --remote` after `migrate:check`.
+- **Live model calls are blocked by guardian's breaker** as of 2026-10-14 —
+  `docs/decisions/2026-10-14-guardian-breaker-blocks-cocreate.md`.

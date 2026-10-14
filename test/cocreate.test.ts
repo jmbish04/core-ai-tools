@@ -50,6 +50,15 @@ describe("prompt diff", () => {
     expect(diffPrompts("A Cat.", "a cat.").every((o) => o.type === "same")).toBe(true);
   });
 
+  it("does not count a clause whose only change is trailing punctuation", () => {
+    const ops = diffPrompts("A cat, warm lights.", "A cat, warm lights, no text.");
+    expect(ops).toEqual([
+      { type: "same", text: "A cat," },
+      { type: "same", text: "warm lights," },
+      { type: "add", text: "no text." },
+    ]);
+  });
+
   it("handles an empty side", () => {
     expect(diffPrompts("", "New.")).toEqual([{ type: "add", text: "New." }]);
     expect(diffPrompts("Old.", "")).toEqual([{ type: "del", text: "Old." }]);

@@ -10,7 +10,6 @@
  * Everything here is pure: no env, no I/O, so it is unit-testable.
  */
 
-import type { BeliefGraph } from "@/backend/db/schema";
 import type { GraphUpdate } from "@/backend/db/schema";
 
 export type Proactiveness = "low" | "medium" | "high";
@@ -182,7 +181,7 @@ export function cleanRefinedPrompt(text: string): string {
   return text
     .trim()
     .replace(/^```[a-z]*\n?|\n?```$/g, "")
-    .replace(/^[\s*_]*(updated|refined|final|new)?\s*prompt\s*[:\-]+[\s*_]*/i, "")
+    .replace(/^[\s*_]*(updated|refined|final|new)?\s*prompt\s*[:-]+[\s*_]*/i, "")
     .replace(/^"(.*)"$/s, "$1")
     .trim();
 }
