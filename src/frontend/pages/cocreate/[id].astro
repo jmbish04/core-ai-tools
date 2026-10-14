@@ -1,0 +1,21 @@
+---
+/**
+ * @fileoverview `/cocreate/[id]` — one co-creator session. The id is read on the
+ * server and passed in, so SSR and hydration agree (no window.location read).
+ */
+import ShellLayout from "@/layouts/ShellLayout.astro";
+import { CocreateWorkspace } from "@/components/cocreate/CocreateWorkspace";
+import { shellNavFor } from "@/lib/nav";
+
+const { id } = Astro.params;
+---
+
+<ShellLayout
+  title="Co-creator session"
+  description="Belief graph, clarifying questions, prompt history with diffs, and generated images for one session."
+  {...shellNavFor(Astro.url.pathname)}
+>
+  <div class="mx-auto w-full max-w-[100rem] px-4 pb-16 sm:px-6">
+    <CocreateWorkspace sessionId={id!} client:load />
+  </div>
+</ShellLayout>
