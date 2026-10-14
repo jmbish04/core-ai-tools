@@ -694,6 +694,19 @@ config. All three are now `ONE_YEAR_S` in `mcp/oauth.ts`. Never set only one.
 
 ## AI routing through core-guardian (Gemini routed; OpenAI images CANNOT be)
 
+> **⛔ 2026-10-14, Justin: core-guardian is the ONLY AI source for core-ai-tools. Paid
+> models are allowed, but only through guardian.** The two bypasses below are REMOVED:
+> `google-image.ts` has no direct-SDK path (missing binding → ConfigError; unreachable,
+> 422 and 429 are surfaced), and `openai-image.ts` refuses every call (retryable, so
+> `executeRevision` falls back to the first Gemini image model — through guardian).
+> Guardian project `core-ai-tools`: `allowUsageBasedFallback: true`,
+> `usageBasedFallbackMaxUsd: 10` (agent-set placeholder; Justin owns the number).
+> `test/guardian-only.test.ts` pins this. **Remaining blocker:** guardian prices by
+> catalog `id`/`name` and our pinned ids match neither, so it estimates `$Infinity` and
+> refuses (`cap would be exceeded: $Infinity > $10`). The fix is in core-guardian
+> (`estimatedCatalogCostUsd` + the line-689 priceability check must resolve ids through
+> its registry aliases). The older bullets below are history.
+
 - **`GUARDIAN` is bound to the `GuardianRpc` entrypoint** — a service binding IS the
   trust boundary there, so the RPC door needs **no token** (the HTTP
   `/api/ai-router/run` route wants `CLOUDFLARE_AI_GATEWAY_TOKEN`; the RPC door does
