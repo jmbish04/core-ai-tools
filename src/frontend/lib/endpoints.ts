@@ -36,3 +36,12 @@ export const AGENT_TURN_PATH = "agent/turn";
 
 /** The same turn as Server-Sent Events: reply deltas and tool results as they land. */
 export const AGENT_TURN_STREAM_PATH = "agent/turn/stream";
+
+/** Co-creator sessions (list + create). */
+export const COCREATE_SESSIONS_PATH = "cocreate/sessions";
+
+/** One co-creator session — everything the workspace renders. */
+export const cocreateSessionPath = (id: string): string => `${COCREATE_SESSIONS_PATH}/${id}`;
+
+/** The consultant: advice + matching answers from other sessions. */
+export const COCREATE_CONSULT_PATH = "cocreate/consult";
