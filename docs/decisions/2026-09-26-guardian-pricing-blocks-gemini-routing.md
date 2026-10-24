@@ -1,6 +1,6 @@
 ---
 date: 2026-09-26
-status: open
+status: decided
 owner: Justin
 tags: [core-guardian, ai-routing, pricing, core-ai-tools]
 ---
@@ -90,4 +90,13 @@ the fallback (that would take image generation down over a catalog gap).
 
 ## Decision
 
-_(pending)_
+**2026-10-14, Justin:** core-guardian is the ONLY AI source for core-ai-tools; paid
+models are OK but only through guardian. So option 3 (keep the direct fallback) is
+rejected and the fallback is removed. Guardian project `core-ai-tools` now has
+`allowUsageBasedFallback: true`, cap $10.00 (placeholder pending Justin's number).
+
+Measured after that change: a Gemini image call is refused with
+`429 "usage-based fallback cap would be exceeded: $Infinity > $10"` — the same pricing
+gap, now surfacing as an infinite cost estimate. Option 1 (fix guardian's id
+resolution) is the remaining work, in core-guardian. Status: decided; fix pending in
+core-guardian.
