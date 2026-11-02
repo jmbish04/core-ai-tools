@@ -27,8 +27,8 @@ import type { CapabilityRequirement, Resolution } from "@/backend/ai/registry";
 import type { LibraryImage } from "@/backend/db/schema";
 import type { CoreContext } from "../context";
 import { ProviderError, ValidationError } from "../errors";
-import { IMAGE_VARIANTS, uploadImageBytes, variantUrl } from "../images";
-import { registerImage } from "../library/images";
+import { fetchImageBase64, IMAGE_VARIANTS, uploadImageBytes, variantUrl } from "../images";
+import { registerImage, requireImage } from "../library/images";
 import { expandPrompts } from "./prompts";
 import type { ExpandInput } from "./prompts";
 
@@ -38,6 +38,8 @@ export interface GenerateImagesInput extends ExpandInput {
   aspectRatio?: string;
   resolution?: Resolution;
   folderId?: string | null;
+  /** Library image to render FROM (image-to-image). Absent = text-to-image. */
+  referenceImageId?: string | null;
   surface?: "ui" | "api" | "mcp";
   waitUntil?: (p: Promise<unknown>) => void;
 }
@@ -65,10 +67,14 @@ export async function generateImages(ctx: CoreContext, input: GenerateImagesInpu
   }
 
   const modelId = await resolveModelId(ctx.db, { taskKey: "image_generate", explicit: input.requestedModel });
-  const req: CapabilityRequirement = { text_to_image: true };
+  const req: CapabilityRequirement = input.referenceImageId ? { image_to_image: true } : { text_to_image: true };
   if (input.aspectRatio) req.aspect_ratio = input.aspectRatio;
   if (input.resolution) req.resolution = input.resolution;
   const model = assertCapability(modelId, req);
+
+  const inputImageBase64 = input.referenceImageId
+    ? await fetchImageBase64(ctx.env, (await requireImage(ctx, input.referenceImageId)).cfImageId)
+    : undefined;
 
   const surface = input.surface ?? "api";
   const operationId = `generate-${crypto.randomUUID()}`;
@@ -77,6 +83,7 @@ export async function generateImages(ctx: CoreContext, input: GenerateImagesInpu
     const request: ProviderRequest = {
       model,
       prompt,
+      inputImageBase64,
       aspectRatio: input.aspectRatio,
       resolution: input.resolution,
       previousInteractionId,

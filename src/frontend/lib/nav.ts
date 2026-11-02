@@ -42,6 +42,7 @@ export const WORKSPACE_SUBNAV: SubnavItem[] = [
   { id: "library", label: "Images", href: "/library" },
   { id: "assets", label: "Assets", href: "/assets" },
   { id: "sessions", label: "Sessions", href: "/sessions" },
+  { id: "cocreate", label: "Co-creator", href: "/cocreate" },
   { id: "compare", label: "Compare models", href: "/compare" },
 ];
 
@@ -80,6 +81,8 @@ const ROUTES: { prefix: string; nav: ShellNav }[] = [
   { prefix: "/library", nav: { section: "library", subnav: WORKSPACE_SUBNAV, subnavCurrent: "library" } },
   { prefix: "/assets", nav: { section: "assets", subnav: WORKSPACE_SUBNAV, subnavCurrent: "assets" } },
   { prefix: "/sessions", nav: { section: "sessions", subnav: WORKSPACE_SUBNAV, subnavCurrent: "sessions" } },
+  // Prompt refinement before an edit or generation — same rail section as Sessions.
+  { prefix: "/cocreate", nav: { section: "sessions", subnav: WORKSPACE_SUBNAV, subnavCurrent: "cocreate" } },
   { prefix: "/compare", nav: { section: "compare", subnav: WORKSPACE_SUBNAV, subnavCurrent: "compare" } },
   { prefix: "/projects/new", nav: { section: "new", subnav: [], subnavCurrent: "" } },
   { prefix: "/models", nav: { section: "models", subnav: OPS_SUBNAV, subnavCurrent: "models" } },

@@ -1,0 +1,20 @@
+---
+/**
+ * @fileoverview `/cocreate` — the prompt co-creator: start a session, revisit
+ * past ones, or ask the consultant which earlier answers apply to a new idea.
+ */
+import ShellLayout from "@/layouts/ShellLayout.astro";
+import { CocreateHome } from "@/components/cocreate/CocreateHome";
+import { shellNavFor } from "@/lib/nav";
+---
+
+<ShellLayout
+  title="Co-creator"
+  description="Refine an image prompt with a belief graph and clarifying questions, reuse answers across sessions, and keep every version."
+  {...shellNavFor(Astro.url.pathname)}
+>
+  {/* No page header: the island renders its own title and counts. */}
+  <div class="mx-auto w-full max-w-[100rem] px-4 pb-16 sm:px-6">
+    <CocreateHome client:load />
+  </div>
+</ShellLayout>

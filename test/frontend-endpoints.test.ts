@@ -18,10 +18,14 @@ import { describe, expect, it } from "vitest";
 
 import { agentRouter } from "@/backend/api/routes/agent";
 import { assetsRouter } from "@/backend/api/routes/assets";
+import { cocreateRouter } from "@/backend/api/routes/cocreate";
 import { libraryRouter } from "@/backend/api/routes/library";
 import { errorHandler } from "@/backend/api/middleware/error";
-import { createFolder, moveImage } from "@/backend/core";
+import { createCocreateSession, createFolder, moveImage } from "@/backend/core";
 import {
+  COCREATE_CONSULT_PATH,
+  COCREATE_SESSIONS_PATH,
+  cocreateSessionPath,
   AGENT_TURN_PATH,
   ASSETS_PATH,
   LIBRARY_FOLDERS_PATH,
@@ -38,6 +42,7 @@ function api() {
   app.route("/", libraryRouter);
   app.route("/", assetsRouter);
   app.route("/", agentRouter);
+  app.route("/", cocreateRouter);
   return app;
 }
 
@@ -99,5 +104,25 @@ describe("frontend endpoint contract", () => {
       );
       expect({ path, status: res.status }).not.toEqual({ path, status: 404 });
     }
+  });
+
+  it("answers the co-creator list and one session at the paths its islands ask for", async () => {
+    const s = await createCocreateSession(ctx(), { prompt: "a fox in snow" });
+    const list = await get(COCREATE_SESSIONS_PATH);
+    expect({ path: COCREATE_SESSIONS_PATH, status: list.status }).toEqual({ path: COCREATE_SESSIONS_PATH, status: 200 });
+    expect(((await list.json()) as { sessions: { id: string }[] }).sessions.map((x) => x.id)).toContain(s.id);
+
+    const one = await get(cocreateSessionPath(s.id));
+    expect(one.status).toBe(200);
+    expect(((await one.json()) as { versions: unknown[] }).versions).toHaveLength(1);
+    // A missing session is a 404 with a message, not an empty workspace.
+    expect((await get(cocreateSessionPath("missing"))).status).toBe(404);
+
+    const consult = await api().request(
+      `/api/${COCREATE_CONSULT_PATH}`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+      env,
+    );
+    expect({ path: COCREATE_CONSULT_PATH, status: consult.status }).not.toEqual({ path: COCREATE_CONSULT_PATH, status: 404 });
   });
 });

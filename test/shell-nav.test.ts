@@ -45,6 +45,8 @@ const PAGES: { path: string; section: string }[] = [
   { path: "/assets/asset_123", section: "assets" },
   { path: "/sessions", section: "sessions" },
   { path: "/sessions/2f0c5f1e-0000-4000-8000-000000000000", section: "sessions" },
+  { path: "/cocreate", section: "sessions" },
+  { path: "/cocreate/2f0c5f1e-0000-4000-8000-000000000000", section: "sessions" },
   { path: "/compare", section: "compare" },
   { path: "/projects/new", section: "new" },
   { path: "/models", section: "models" },
