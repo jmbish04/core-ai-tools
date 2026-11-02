@@ -1,17 +1,15 @@
 /**
- * @fileoverview Google (Gemini) image + understanding adapter — the official
- * `@google/genai` SDK against the Gemini Interactions API (`ai.interactions.create`,
- * GA), the recommended path over legacy `generateContent`. The same call serves
- * image models (gemini-3.1-flash-image, gemini-3-pro-image, …) — the model id
- * decides the output modality.
+ * @fileoverview Google (Gemini) image + understanding adapter against the Gemini
+ * Interactions API (`v1beta/interactions`). The same call serves image models
+ * (gemini-3.1-flash-image, gemini-3-pro-image, …) — the model id decides the
+ * output modality.
  *
- * Usage logging: this adapter returns tokensIn/tokensOut/tokensThinking on the
- * ProviderResult; the dispatch wrapper (../dispatch/index.ts) is the single choke
- * point that emits them to core-guardian after every call — so guardian coverage
- * is structural, not per-call.
+ * ROUTING: core-guardian is the ONLY AI source for core-ai-tools (Justin,
+ * 2026-10-14). Every call goes through guardian's AI router (`GUARDIAN` RPC,
+ * `mode: "gateway"`), which meters, prices and spend-breaks it and holds the
+ * provider key. There is no direct-SDK path in this Worker any more.
  *
  * Settled decisions encoded here:
- *  - Key via utils/secrets → SDK `apiKey` (SDK sends `x-goog-api-key`).
  *  - Multi-turn: pass `previous_interaction_id` (the parent revision's provider
  *    interaction id). If the interaction is lost/expired, retry once WITHOUT it
  *    but WITH the parent image inline, and set `conversationLost`.
@@ -24,16 +22,9 @@
  *    edit outside it). Gemini image models honor this; the registry marks them
  *    `mask_inpainting: true`. Non-image Gemini models (3.6 Flash, Omni) can't and
  *    are gated by capabilities.
- *  - NO AI Gateway: the Interactions API is not proxyable through Cloudflare AI
- *    Gateway, so calls go direct and usage is logged to core-guardian by the
- *    dispatch choke point (../dispatch/index.ts) — that is the sole usage record.
  */
 
-import { GoogleGenAI } from "@google/genai";
-
-
-import { getGeminiApiKey } from "@/backend/utils/secrets";
-import { classifyProviderError, NotImplementedError, ProviderError } from "@/backend/core/errors";
+import { classifyProviderError, ConfigError, CoreError, ProviderError } from "@/backend/core/errors";
 import type { ProviderAdapter, ProviderRequest, ProviderResult } from "../dispatch/types";
 
 type InputPart =
@@ -165,22 +156,25 @@ interface InteractionCall {
  * mode targets `v1beta/interactions` for google, so the params pass through
  * unchanged apart from `model`, which guardian merges in itself.
  *
- * @returns null when guardian is not bound or cannot serve this call — the caller
- *   then falls back to the direct SDK rather than failing the generation.
- * @throws ProviderError when guardian ran the call and the PROVIDER rejected it
- *   (a real content/auth/rate error, which a fallback would only repeat).
+ * core-guardian is the ONLY AI source for core-ai-tools (Justin, 2026-10-14), so
+ * there is no direct-SDK fallback: an unbound guardian, an unreachable guardian,
+ * a 422 "not priceable" and a spend refusal are all errors the caller sees.
+ *
+ * @throws ConfigError when the GUARDIAN binding is missing; ProviderError (via
+ *   classifyProviderError) for any guardian or provider refusal.
  */
-async function viaGuardian(env: Env, params: Record<string, unknown>): Promise<InteractionCall | null> {
+async function viaGuardian(env: Env, params: Record<string, unknown>): Promise<InteractionCall> {
   const rpc = env.GUARDIAN as unknown as { run?: (p: unknown) => Promise<unknown> } | undefined;
-  if (typeof rpc?.run !== "function") return null;
+  if (typeof rpc?.run !== "function") {
+    throw new ConfigError("core-guardian is the only AI source for core-ai-tools, and the GUARDIAN binding is not available.");
+  }
 
   const { model, ...input } = params;
   let raw: any;
   try {
     raw = await rpc.run({
       project: GUARDIAN_PROJECT,
-      // Required by guardian's runBody (it has no default) — omitting it fails
-      // validation and silently drops the call to the direct-SDK fallback.
+      // Required by guardian's runBody (it has no default) — omitting it fails validation.
       importance: "medium",
       provider: "google",
       model,
@@ -188,11 +182,9 @@ async function viaGuardian(env: Env, params: Record<string, unknown>): Promise<I
       input,
     });
   } catch (err) {
-    // Guardian itself is unreachable/misconfigured — not a provider verdict.
-    console.warn(
-      `[guardian] router RPC unavailable, falling back to a direct Gemini call: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return null;
+    // Guardian unreachable/misconfigured. Surfaced (retryable if transient) —
+    // never sent around guardian.
+    throw classifyProviderError("core-guardian router RPC", err);
   }
 
   if (raw && typeof raw === "object" && "stream" in raw) {
@@ -207,23 +199,9 @@ async function viaGuardian(env: Env, params: Record<string, unknown>): Promise<I
   if (status >= 400) {
     const detail = typeof interaction === "string" ? interaction : JSON.stringify(interaction ?? {}).slice(0, 400);
 
-    // TWO DIFFERENT 4xx meanings, and they must not be conflated:
-    //
-    //  - 422 "not priceable in the catalog" is guardian saying "I CANNOT METER
-    //    this model", not "you may not spend". Failing closed on it would take
-    //    image generation down over a gap in guardian's price catalog, so we fall
-    //    back to the direct call — which still emits a usage record through
-    //    `usage/register`, exactly as before routing existed. Loud, never silent.
-    //  - anything else (429 breaker trip, budget rejection, provider fault) IS
-    //    guardian's verdict and is surfaced. Never bypass a spend control.
-    if (status === 422 && /not priceable/i.test(detail)) {
-      console.warn(
-        `[guardian] ${String(model)} is not priceable in guardian's catalog (422) — falling back to a direct ` +
-          `Gemini call with usage/register metering. Add pricing for this model id in core-guardian to route it.`,
-      );
-      return null;
-    }
-
+    // Every refusal is surfaced — including 422 "not priceable" and a 429
+    // "cap would be exceeded: $Infinity" (both mean guardian cannot price this
+    // model id; the fix is guardian's pricing lookup, never a call around it).
     throw classifyProviderError(`Gemini via core-guardian (${status})`, Object.assign(new Error(detail), { status }));
   }
 
@@ -235,44 +213,35 @@ async function viaGuardian(env: Env, params: Record<string, unknown>): Promise<I
   };
 }
 
-/** Direct SDK call — the fallback when guardian is not available. */
-async function direct(apiKey: string, params: Record<string, unknown>): Promise<InteractionCall> {
-  const ai = new GoogleGenAI({ apiKey });
-  return { interaction: await ai.interactions.create(params as never), viaGuardian: false };
-}
+/** One interaction call — through core-guardian only (metered + spend-broken). */
+const createInteraction = viaGuardian;
 
 /**
- * One interaction call: guardian first (metered + spend-broken), direct SDK if
- * guardian is not bound or not reachable.
+ * Classify only what is not already ours. `viaGuardian` throws classified
+ * ProviderErrors and a ConfigError; re-classifying them would double-wrap the
+ * message and, because a CoreError carries an HTTP status ≥ 500, wrongly mark a
+ * missing binding retryable (sending model fallback after a config problem).
  */
-async function createInteraction(env: Env, apiKey: string, params: Record<string, unknown>): Promise<InteractionCall> {
-  return (await viaGuardian(env, params)) ?? (await direct(apiKey, params));
-}
+const reclassify = (label: string, err: unknown) => (err instanceof CoreError ? err : classifyProviderError(label, err));
 
 export const googleImageAdapter: ProviderAdapter = {
   provider: "google",
 
   async generate(env: Env, req: ProviderRequest): Promise<ProviderResult> {
-    const apiKey = await getGeminiApiKey(env);
-    if (!apiKey) {
-      throw new NotImplementedError(
-        "Gemini generate: GEMINI_API_KEY unresolved (set the binding + value).",
-      );
-    }
     let conversationLost = false;
     let call: InteractionCall;
     try {
-      call = await createInteraction(env, apiKey, buildParams(req, { withPrevious: true }));
+      call = await createInteraction(env, buildParams(req, { withPrevious: true }));
     } catch (err) {
       if (req.previousInteractionId && isLostInteraction(err)) {
         conversationLost = true;
         try {
-          call = await createInteraction(env, apiKey, buildParams(req, { withPrevious: false }));
+          call = await createInteraction(env, buildParams(req, { withPrevious: false }));
         } catch (retryErr) {
-          throw classifyProviderError("Gemini Interactions", retryErr);
+          throw reclassify("Gemini Interactions", retryErr);
         }
       } else {
-        throw classifyProviderError("Gemini Interactions", err);
+        throw reclassify("Gemini Interactions", err);
       }
     }
     const interaction = call.interaction;
@@ -298,8 +267,6 @@ export const googleImageAdapter: ProviderAdapter = {
   },
 
   async understand(env: Env, req: ProviderRequest): Promise<ProviderResult> {
-    const apiKey = await getGeminiApiKey(env);
-    if (!apiKey) throw new NotImplementedError("Gemini understand: GEMINI_API_KEY unresolved.");
     // Caption / VQA / detection / segmentation are all prompt-driven text output.
     // thinking_level='minimal' per the docs (improves segmentation). Coordinate
     // conversion (0–1000 → 0–1) for segment masks is handled at the mask boundary.
@@ -311,9 +278,9 @@ export const googleImageAdapter: ProviderAdapter = {
 
     let call: InteractionCall;
     try {
-      call = await createInteraction(env, apiKey, params);
+      call = await createInteraction(env, params);
     } catch (err) {
-      throw classifyProviderError("Gemini understand", err);
+      throw reclassify("Gemini understand", err);
     }
 
     const result = parseInteraction(call.interaction);
