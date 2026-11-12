@@ -195,6 +195,7 @@ and the rest follow the stack the way the chapters do:
 | `scripts/gh.mjs` | every repo | the GitHub entry point. Wraps the `gh-tools` CLI |
 | `scripts/tokens.mjs` | every repo | scaffolded from the `tokens` CLI, not vendored — one source, no drift |
 | `scripts/fix-d1-migrations.mjs` | Worker repos | makes Drizzle's SQL re-runnable on D1 |
+| `scripts/check-d1-not-inherited.mjs` | Worker repos | refuses a D1 `database_id` that belongs to another project — see below |
 | `scripts/reui.mjs` | frontend repos | pins the `@reui` registry so Pro blocks stop 401-ing |
 | `scripts/ui-guard.mjs` | frontend repos | fails the build on the frontend standard's checkable rules — see `AGENTS-frontend.md` |
 
@@ -205,6 +206,38 @@ into every shell and `GH_TOKEN` is the live one, so a helper that reads
 `process.env.GITHUB_TOKEN` picks the corpse. Import it (`import { gh, ghJson } from
 "./scripts/gh.mjs"`) or run it (`node scripts/gh.mjs pr-discussion . 20`). It is local
 only; there is no `gh-tools` on a CI runner.
+
+**`scripts/check-d1-not-inherited.mjs` is the one managed script the sync also runs
+itself.** Measured 2026-11-02: a template repo shipped core-guardian's real production
+`database_id`, `d555f8ce-77c9-4c82-be80-de95b8d9c003` — the Worker that watches
+Cloudflare spend and holds the switches to shut things down, at 123 tables and 400.2 MB.
+`database_name` is cosmetic; only the uuid binds, so five Workers shared that one
+database while each `wrangler.jsonc` claimed a name of its own, and every app scaffolded
+from the template ran its own Drizzle migrations into it. A server-side search found the
+uuid on 13 default branches.
+
+Two rules, because two different mistakes put a foreign uuid there: a known-foreign id
+is refused whatever the project is called, and any uuid-shaped id is refused while
+`package.json`'s `name` still matches `core-template*`. `--self-check` proves both can
+fail, then parses the repo's live `wrangler.jsonc` and says whether it did.
+
+**The sync does not edit `package.json`.** Deploy script names differ in every repo, and
+rewriting a repo's own manifest is a bigger power than refreshing a briefing. So the
+guard runs from the `agents-sync` workflow's own step instead, on every PR in every
+Worker repo, and `pull-agents` warns by name when no `package.json` script invokes it.
+Wire it anyway — the workflow catches a PR, not a deploy from a laptop:
+
+```json
+"check:d1":       "node scripts/check-d1-not-inherited.mjs",
+"migrate:remote": "node scripts/check-d1-not-inherited.mjs && …",
+"deploy":         "node scripts/check-d1-not-inherited.mjs && …",
+```
+
+Whether a repo is **carrying** it: `ls scripts/check-d1-not-inherited.mjs`, or
+`gh api -X GET search/code -f q='repo:OWNER/NAME filename:check-d1-not-inherited.mjs'`.
+Whether it is **running** it: the `agents-sync` run on the last PR has a
+`Check this repo's D1 binding is its own` step, and its log says which case it took.
+Whether a **deploy** would run it: `grep check-d1-not-inherited package.json`.
 
 **A script of yours is never silently replaced.** Only files carrying the
 `colby-ecosystem: managed script` banner are overwritten. A `scripts/gh.mjs` that is
@@ -217,6 +250,17 @@ is meant to retire.
 delimited managed block of pointers at the top. Everything outside that block is
 left byte-for-byte alone, so the effective briefing is **local `AGENTS.md` +
 colby-ecosystem's**, not one replacing the other.
+
+**These briefings are themselves generated — the rendered file is an artifact.**
+All 11 machine-wide targets, every `AGENTS*.md` above plus `~/.claude/CLAUDE.md`,
+are rendered from `generator/blocks/*.md` through `generator/generate.mjs` and
+`generator/targets.json` in colby-ecosystem. So a change to a briefing is a change
+to a **block**, and editing a rendered file fails the repo's own
+`briefings match their blocks` gate: `node generator/generate.mjs check` names the
+target `STALE` and CI goes red with no other failure. Measured twice —
+`decisions/2026-10-15-claude-pipeline-triage.md`, and again on 2026-11-02 in PR 128,
+that time by following `scripts/sync-agents`' premise that the home copy is the
+working copy. "End of session" below carries the loop to run.
 
 ## Installing it — `gh-tools agents-sync`
 
@@ -525,6 +569,15 @@ machine-wide `AGENTS*.md` briefings, the agent skills and the templates; it is
 cloned at `/Volumes/Projects/colby-ecosystem` and synced with `sync-agents`.
 Neither of them tracks work — that is colby-maestro.
 
+**The versioned copy is [`jmbish04/core-reuse-library`](https://github.com/jmbish04/core-reuse-library)
+(private, since 2026-10-21).** `~/.colby-ecosystem/` is on one Mac, outside
+any git repo, so a cloud session, a CI runner or another clone cannot see it.
+Its `workers/` and `python/` code was copied there, alongside `standards/` (one
+page per stack: Workers backend and frontend, Python, GAS) and `references/`
+(pinned links to core-guardian, core-bridge, core-pve and the two templates).
+Colby Maestro indexes it for `GET /api/reuse/search`. Prefer it when the session
+may not be on this Mac, and change shared code there, by PR.
+
 - `workers/` — `wrangler.jsonc` (full observability, **no `ai` binding**, Secret
   Store bindings, `run_worker_first`), `utils/secrets.ts`, `utils/ai.ts`,
   `devOps/tokens.mjs`, `devOps/fix-d1-migrations.mjs`, `.vscode/settings.json`
@@ -695,6 +748,52 @@ in the data, opposite in meaning.
   components is right — reporting a box UNHEALTHY forever for a role it never
   uses just trains people to ignore red. Derive it from a declaration, not from
   absence.)
+
+## A scan that read less than it claimed looks exactly like a clean one
+
+The rules above are about a check that runs and reports the wrong thing. This one
+is about a check that **covered less ground than you think** and reported clean
+for that reason. It is the same defect one step earlier, and it is harder to see,
+because the output of the partial scan and the complete one are the same
+sentence.
+
+**The number that makes the point:** "14 of 327 checkouts carry `.git` as a file"
+and "230 of 629" are both correct for the same fleet on the same day — the first
+counts top-level directories, the second recurses. Nothing was measured
+incorrectly. A reader handed either one cannot tell which, and the gap between
+them is 16x. Three rules follow, and all three are cheap:
+
+- **Never suppress a fetch's stderr.** `git fetch … 2>/dev/null` turns a network
+  failure into a stale ref that reads as fresh, and prints nothing at all. On
+  2026-11-02, port 22 to github.com was timing out on this machine while 443
+  answered; every suppressed fetch in that window silently measured whatever was
+  already on disk, and its caller reported a SHA. Fetch into a named ref and
+  compare it with what you had, so "unchanged" is a measurement rather than an
+  assumption.
+- **Enumerate a fleet from the server, not from disk.** One
+  `gh api search/code` over the default branches answered in a single call what
+  four passes over local checkouts got wrong — 4 repos, then 7, against 10. A
+  clone can be stale in either direction: its working tree behind its
+  `origin/main`, or its `origin/main` behind the remote. Read `total_count`
+  before the items and compare it with the rows you consumed; a filtered page one
+  reads exactly like a complete answer. A count of 26 came from page one of 277.
+- **Say which tree you measured, by ref.** A count with no SHA beside it cannot
+  be checked by the next reader, and that is how a branch 38 commits behind
+  `main` got quoted as the state of `main` — 143 violations for a tree that has
+  none.
+
+**Corollary for anything that scans:** print the roots it resolved and the bound
+it stopped at, so a partial scan is visible in its own output rather than only to
+someone who already knows the right answer — `scanned src/ (654) · no
+.ui-guard.json, roots defaulted to src, web · looked 3 deep for other frontends`.
+And a scanner that is never invoked prints nothing at all, so something has to
+assert that the check ran: 41 repos vendored `ui-guard.mjs` and 10 ran it.
+
+Two mechanical causes worth keeping, because both are one character wide:
+`[ -d "$repo/.git" ]` skips a linked worktree, whose `.git` is a file — use `-e`,
+then dedupe by `git rev-parse --git-common-dir`. And a pipeline's `$?` is the
+*last* command's, so `cmd 2>&1 | head; echo $?` reports `head` succeeding while
+`cmd` failed.
 
 ---
 
@@ -1260,7 +1359,7 @@ the task status and worklog current while it runs.
 
 ## The colby-maestro MCP is the Worker connector — use it, every time
 
-**There is one colby-maestro MCP: the Worker's.** Every task, claim, worklog
+**There is one colby-maestro MCP: the Worker's.** Every issue, claim, worklog
 entry, plan, room, briefing and proposal goes through it. It is pre-approved (see
 "Standing authorizations") — no prompt, no asking first.
 
@@ -1275,26 +1374,49 @@ Claude Code, cloud sessions, and Claude on iOS. The bearer token is the standard
 `WORKER_API_KEY` — the same credential every Worker in the ecosystem accepts (see
 "Secrets & credentials"); never mint a maestro-specific one.
 
-### Every door now reaches the Worker. Stop hunting for the "right" one.
+### The MCP is the door. The CLIs are not tracking doors.
 
-**Measured 2026-10-14, on this Mac.** All three of these write to the Worker, and
-there is no longer a local SQLite lane for an agent to fall into:
+**Which endpoint to call, in the order an agent walks it:
+`docs/maestro-endpoints.md` in colby-ecosystem.** It carries the lifecycle
+diagram and the 60 agent-facing paths grouped by job. Read it instead of
+rediscovering the catalog.
 
-| Door | Where it actually goes | Proof |
+Issues, status, claims, worklogs, plans, artifacts and feedback are MCP calls.
+Measured 2026-11-01: `codemode.spec().info.title` answers `Colby Maestro API`
+with **314 paths**, the same count as the Worker's own `/openapi.json`.
+
+| Door | Where it goes | Use it for |
 |---|---|---|
-| `mcp__colby-maestro__*` (`search` / `execute`) | the Worker's `/mcp` | `~/.config/colby-mcp/servers.json` maps `colby-maestro` to `https://colby-maestro.hacolby.workers.dev/mcp` through `mcp-remote`; `codemode.spec().info.title` answers `Colby Maestro API` with **214 paths**, the same count as the Worker's own `/openapi.json` |
-| `colby-maestro` CLI (`~/.local/bin/colby-maestro`) | the Worker's REST API | `local_ai_orchestrator/shared/worker_api.py` sets `DEFAULT_WORKER_BASE_URL = https://colby-maestro.hacolby.workers.dev`; `colby-maestro tasks list --project-key colby-ecosystem --json` and `GET /api/tasks?project_key=colby-ecosystem` returned the same first task, field for field |
-| `maestro-task` (the plugin's CLI) | the Worker's REST API | `plugins/colby-maestro/lib/colby_maestro/http.py`, against `base_url()` |
+| `mcp__colby-maestro__*` (`search` / `execute`) | the Worker's `/mcp` — `~/.config/colby-mcp/servers.json` maps `colby-maestro` to `https://colby-maestro.hacolby.workers.dev/mcp` through `mcp-remote` | **everything an agent tracks** |
+| Plain HTTP, same paths + `Authorization: Bearer $(tokens show WORKER_API_KEY --value-only)` | the Worker | the one fallback, when no code-mode server answers `Colby Maestro API` |
+| `colby-maestro` CLI (`~/.local/bin/colby-maestro`) | the Worker's REST API (`DEFAULT_WORKER_BASE_URL` in `local_ai_orchestrator/shared/worker_api.py`) | the operator surface a human drives. Not an agent's tracking door |
+| `maestro-issue` (the plugin's CLI) | the Worker's REST API, plus plugin-local state (`plugins/colby-maestro/lib/colby_maestro/http.py`) | plugin-local jobs with no Worker route: `upload-replay`, `ding classify`. Never status, worklog or linking |
 
-**This paragraph used to say the opposite, and that was the bug.** Until
-2026-10-14 this file told agents that `mcp__colby-maestro__*` and the
-`colby-maestro` CLI were "legacy" tools writing to a local SQLite mirror, and
-that the obvious-looking tool was "the wrong one". It had been true; Justin
-rewired both to the Worker and the warning stayed. The result was agents
-distrusting the correct tool, going looking for a client that was not installed,
-and reporting themselves blocked on a job the tool in their hand would have
-done. **A stale warning does more damage than no warning** — it does not merely
-fail to help, it actively sends work to the wrong place, or to nowhere.
+**To link a session to an issue: name the integer issue_id in your next message.** The
+plugin's prompt hook reads it and links it. With no plugin,
+`POST /api/agents/heartbeat` with `session_key` and `task_id` does the same.
+There is no `/bind` route among the 314 paths; linking is per-session plugin
+state plus that heartbeat. The CLI's linking subcommand cannot run in a worktree
+at all — Claude Code's fence refuses any command carrying that word, which is
+also a shell builtin — and `~/AGENTS.md` mandates a worktree for every repo
+edit. "I could not find the client, so the work could not be recorded" is never
+the answer.
+
+**Telemetry is a different system.** Token usage, decisions and transcripts go
+to `agents.hacolby.app`, a FastAPI service on LXC 109 reached locally or over the
+Cloudflare tunnel. Not the Worker. The plugin's `TokenUsage` hook posts on Stop
+and SessionEnd; you never call it by hand.
+
+**Two earlier versions of this section were wrong, in opposite directions.**
+Until 2026-10-14 it called `mcp__colby-maestro__*` and the `colby-maestro` CLI
+"legacy" tools writing to a local SQLite mirror, long after Justin had rewired
+both to the Worker. Agents distrusted the correct tool and reported themselves
+blocked. Then it over-corrected into "every door reaches the Worker, pick the
+one in front of you", which read as permission to use a CLI for tracking — and
+this plugin's own hooks were naming `maestro-task` in every session's context,
+so that is what sessions did. Both failures were the file disagreeing with the
+instruction. **A stale warning does more damage than no warning:** it does not
+merely fail to help, it sends work to the wrong place.
 
 So: **measure against the machine, not against this file.** The probe is one
 call and it costs nothing:
@@ -1307,24 +1429,6 @@ async () => { const s = await codemode.spec(); return s.info.title; }
 If what you measure disagrees with what you read here, the measurement wins —
 and fixing this file is part of the job (see "End of session").
 
-### `maestro-task` is the plugin's CLI, and it is not always there
-
-`maestro-task` is on PATH **only while the `colby-maestro` plugin is enabled in
-that session**. It is not installed in `~/bin`, so a session without the plugin
-genuinely has no `maestro-task`, and that is not a broken machine.
-
-What it does NOT mean is that the session cannot be linked to a task. `bind` is
-not a Worker route — there is no `/bind` among the 214 paths, because binding is
-per-session state the plugin keeps plus a heartbeat. Without the plugin:
-
-- **to link a session to a task:** `POST /api/agents/heartbeat` with
-  `session_key` and `task_id`;
-- **to move a status or add a worklog note:** the ordinary task routes, through
-  the MCP's `execute` or over HTTP.
-
-Neither needs `maestro-task`. "I could not find the client, so the work could
-not be recorded" is never the answer.
-
 ### Tracking work is colby-maestro's job, and only colby-maestro's
 
 The two systems share a prefix and get mistaken for each other constantly. They do
@@ -1332,18 +1436,18 @@ different jobs and neither does the other's:
 
 | System | What it is | What it is NOT |
 |---|---|---|
-| **colby-maestro** — `colby-maestro.hacolby.workers.dev` | the **control plane**: tasks, claims, status, worklogs, plans, rooms, briefings, proposals | not a place to keep config or instruction files |
-| **colby-ecosystem** — `github.com/jmbish04/colby-ecosystem` | the **config store**: the machine-wide `AGENTS*.md` briefings, agent skills, templates, sample code, decision records | **not a task tracker.** Never record work, status, a claim or a worklog here, and never open an issue here in place of a maestro task |
+| **colby-maestro** — `colby-maestro.hacolby.workers.dev` | the **control plane**: issues, claims, status, worklogs, plans, rooms, briefings, proposals | not a place to keep config or instruction files |
+| **colby-ecosystem** — `github.com/jmbish04/colby-ecosystem` | the **config store**: the machine-wide `AGENTS*.md` briefings, agent skills, templates, sample code, decision records | **not an issue tracker.** Never record work, status, a claim or a worklog here, and never open an issue here in place of a maestro issue |
 
 Filing a PROPOSAL (see "End of session") does not break that rule: it creates a
-**maestro task whose `project_key` happens to be `colby-ecosystem`**. The tracking
+**maestro issue whose `project_key` happens to be `colby-ecosystem`**. The tracking
 lives in maestro; only the file the proposal wants changed lives in the repo.
 
 **One thing is still genuinely local.** `colby-maestro mcp-serve` can still run a
 FastMCP server on `127.0.0.1:4318`, and it is wired into no client on this
 machine — nothing in `~/.config/colby-mcp/servers.json` points at it. Start it
 only for the host-local operations the Worker's catalog does not carry
-(`orchestrator_*`, `cfg_*`, local model inventory). Never for a task, a status, a
+(`orchestrator_*`, `cfg_*`, local model inventory). Never for an issue, a status, a
 claim or a worklog.
 
 **Finding the connector — its name does not say "maestro".** In the desktop app
@@ -1364,7 +1468,7 @@ Justin to fix it:
 Call it with `Authorization: Bearer $(tokens show WORKER_API_KEY --value-only)`
 against `https://colby-maestro.hacolby.workers.dev`.
 
-**Three things `POST /api/tasks` refuses, whichever door you use:**
+**Three things `POST /api/issues` refuses, whichever door you use:**
 
 - no `task_type` or no `priority` — send both explicitly;
 - **no plan heading** — new work must carry `plan_id` and at least one
@@ -1389,8 +1493,8 @@ Two things to know rather than rediscover:
   content block and every line repeats the full `usage` of its request. Measured
   2026-10-14: 47 lines carrying usage held **18** distinct `requestId` values.
   Anything that sums lines over-reports by about 2.6x. The grain is the request.
-- **It is charged to whatever tasks are bound to the session**, several at once
-  if that is the truth. So binding a task is what makes its actual cost
+- **It is charged to whatever issues are bound to the session**, several at once
+  if that is the truth. So binding an issue is what makes its actual cost
   knowable — an unbound session's spend is recorded, but attributed to nothing.
 
 The raw rows land in `agent_token_usage` on the maestro Postgres; the budget
@@ -1421,7 +1525,7 @@ fits, not only at the very end.
    audit unasked.
 
 **Also check that this session's work is actually visible** where other people
-and agents read it: your task's status and final worklog entry should be on the
+and agents read it: your issue's status and final worklog entry should be on the
 Colby Maestro **Worker**, not only in the local mirror
 (`~/AGENTS-maestro.md` → "Do not add to the drift"). Work recorded into a store
 nobody reads is, from the operator's side, work nobody did.
@@ -1429,6 +1533,26 @@ nobody reads is, from the operator's side, work nobody did.
 If yes to any: **present the proposals and ask Justin to review.** Do not edit
 `~/AGENTS.md` or a template unprompted from a session about something else — say
 what you would change and why, and let him decide.
+
+**When he approves one, edit the BLOCK, not the briefing.** `~/AGENTS.md`, the
+`AGENTS-*.md` topic files and `~/.claude/CLAUDE.md` are all rendered from
+`generator/blocks/*.md` in colby-ecosystem, so the home copy and the repo copy are
+both output. The loop, and `apply` is not the whole of it:
+
+```bash
+node generator/generate.mjs apply            # renders into generator/out/, writes nothing tracked
+cp generator/out/AGENTS.md AGENTS.md         # the render over each target it changed
+node generator/generate.mjs check            # must say 11 targets aligned
+```
+
+`apply` only ever writes `generator/out/` or the system temp directory, so the gate
+stays red until you copy the render over its target — step 2 is the one that is easy
+to miss, because step 1 prints `wrote AGENTS.md` either way. The repo's
+`briefings match their blocks` gate fails on a rendered-file edit and names the stale
+target. Two sessions have now lost a build to this, the second on 2026-11-02 (PR 128)
+by doing exactly what `scripts/sync-agents` describes. One more trap: a local checkout
+whose blocks are as stale as its rendered files reports every target aligned and
+proves nothing about `main`, so render against current `main`.
 
 **`backpass` is the evidence-backed version of step 1, and it is installed.** It reads
 the sessions that actually ran on this machine and proposes edits to `~/AGENTS.md`
@@ -1451,10 +1575,10 @@ you hit today.
 maestro MCP's `execute`:
 
 ```js
-async () => codemode.request({ method: "POST", path: "/api/tasks", body: {
+async () => codemode.request({ method: "POST", path: "/api/issues", body: {
   project_key: "colby-ecosystem", repo_path: "/Users/126colby/.colby-ecosystem",
   title: "PROPOSAL: …", description: "What you hit, the measurement, where.",
-  status: "backlog", priority: "medium", task_type: "task",
+  status: "backlog", priority: "medium", task_type: "chore",
   tags: ["proposal", "agents-md"],
   plan_id: "95b7c398ea52", section_ids: ["6268f2184107"],   // agents-md heading
 }})
@@ -1463,8 +1587,8 @@ async () => codemode.request({ method: "POST", path: "/api/tasks", body: {
 Kinds and their headings in the **Proposals to the shared standards** plan
 (`95b7c398ea52`): `agents-md` `6268f2184107` · `template` `d4d9ff099be4` ·
 `new-template` `418ca344bfed` · `docs` `f875da16dd52` · `tooling` `0b94233bc20a`.
-Proposals land as `backlog` tasks in `colby-ecosystem`. **Check the queue before
-filing** (`GET /api/tasks?project_key=colby-ecosystem`) so you add to an existing
+Proposals land as `backlog` issues in `colby-ecosystem`. **Check the queue before
+filing** (`GET /api/issues?project_key=colby-ecosystem`) so you add to an existing
 proposal rather than duplicating it. What makes a proposal worth filing:
 **`~/AGENTS-maestro.md`**.
 

@@ -118,10 +118,10 @@ Bring numbers, not an idea:
 
 **If he says yes:** run a **complete audit** first — every tool, its schema size,
 its handler, its auth, who calls it — then derive a **comprehensive plan**, and
-only then file an **epic plus its child tasks** in Colby Maestro
-(via MCP `execute` passing `parent_task_id`, or `POST /api/tasks`; remember
+only then file an **epic plus its child issues** in Colby Maestro
+(via MCP `execute` passing `parent_task_id`, or `POST /api/issues`; remember
 both want `task_type` and `priority` explicitly). The epic carries the measured
-before/after and the audit; each task is one shippable step. Rules for writing
+before/after and the audit; each issue is one shippable step. Rules for writing
 them: `~/AGENTS-maestro.md`.
 
 ## Question 2 — spawn an Orca task force to execute it?
